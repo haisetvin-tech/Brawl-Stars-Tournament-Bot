@@ -1223,7 +1223,7 @@ async def settings(callback: types.CallbackQuery):
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text=TEXTS[lang]["language"],
+                        text="🌐 Language / Язык",
                         callback_data="language"
                     )
                 ],

@@ -7,29 +7,22 @@ from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
-# =========================
-# НАСТРОЙКИ
-# =========================
+# ============================================================
+# CONFIG
+# ============================================================
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-# Сюда позже впишем твой Telegram ID для доступа к админке
-ADMIN_IDS = {
-    # 123456789,
-}
-
-
 if not TOKEN:
     raise ValueError("BOT_TOKEN is not set")
-
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 
-# =========================
+# ============================================================
 # DATABASE
-# =========================
+# ============================================================
 
 db = sqlite3.connect("arena.db")
 cursor = db.cursor()
@@ -37,7 +30,7 @@ cursor = db.cursor()
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     telegram_id INTEGER PRIMARY KEY,
-    username TEXT,
+    username TEXT DEFAULT '',
     language TEXT DEFAULT 'en',
     nickname TEXT DEFAULT '',
     player_id TEXT DEFAULT '',
@@ -71,9 +64,18 @@ CREATE TABLE IF NOT EXISTS tournaments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     mode TEXT NOT NULL,
-    description TEXT DEFAULT '',
     prize TEXT DEFAULT '',
     status TEXT DEFAULT 'open'
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS registrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tournament_id INTEGER,
+    telegram_id INTEGER,
+    team_id INTEGER DEFAULT NULL,
+    status TEXT DEFAULT 'pending'
 )
 """)
 
@@ -88,231 +90,363 @@ CREATE TABLE IF NOT EXISTS news (
 db.commit()
 
 
-# =========================
+# ============================================================
 # TEXTS
-# =========================
+# ============================================================
 
 TEXTS = {
 
     "ru": {
         "welcome":
             "🏆 BRAWL STARS ARENA\n\n"
-            "Добро пожаловать в Brawl Stars Arena!\n\n"
-            "Турниры, команды, рейтинги и соревнования "
-            "для игроков Brawl Stars.\n\n"
+            "Добро пожаловать!\n\n"
+            "Турниры • Команды • Рейтинги\n\n"
             "Здесь решают активность и мастерство.",
-
-        "menu": "🏆 Главное меню",
 
         "profile": "👤 Профиль",
         "tournaments": "🏆 Турниры",
         "team": "👥 Команда",
-        "rating": "📊 Рейтинг",
+        "ranking": "📊 Рейтинг",
         "news": "📰 Новости",
+        "settings": "⚙️ Настройки",
+        "help": "❓ Помощь",
         "rules": "📜 Правила",
-        "language": "🌐 Язык",
 
-        "profile_empty":
-            "👤 Твой профиль\n\n"
-            "Ник: не указан\n"
-            "Player ID: не указан\n"
-            "Страна: не указана\n\n"
-            "⭐ Rating: 1000\n"
-            "🏆 Победы: 0\n"
-            "❌ Поражения: 0",
+        "register": "📝 Регистрация",
+        "stats": "📈 Статистика",
+
+        "back": "⬅️ Назад",
+        "home": "🏠 Главное меню",
+
+        "choose_language":
+            "🌐 Выберите язык:",
+
+        "profile_title":
+            "👤 ТВОЙ ПРОФИЛЬ\n\n",
+
+        "not_registered":
+            "Ты ещё не зарегистрирован.\n\n"
+            "Нажми «📝 Регистрация», чтобы создать профиль.",
+
+        "ask_nickname":
+            "🎮 Введи свой ник в Brawl Stars:",
+
+        "ask_player_id":
+            "🆔 Теперь введи свой Player ID:",
+
+        "ask_country":
+            "🌎 Введи свою страну:",
+
+        "registration_done":
+            "✅ Регистрация завершена!\n\n"
+            "Добро пожаловать в Brawl Stars Arena.\n"
+            "Твой стартовый рейтинг: ⭐ 1000",
 
         "tournaments_empty":
-            "🏆 Турниры\n\n"
-            "Сейчас активных турниров нет.\n\n"
-            "Когда появится новый турнир, "
-            "он будет отображаться здесь.",
+            "🏆 Сейчас активных турниров нет.\n\n"
+            "Следи за новостями — новые турниры появятся здесь.",
 
         "team_empty":
-            "👥 Команды\n\n"
-            "У тебя пока нет команды.\n\n"
-            "Позже здесь можно будет создать команду "
-            "из 3 игроков или присоединиться к существующей.",
+            "👥 У тебя пока нет команды.\n\n"
+            "Для 3v3 команда должна состоять ровно из 3 игроков.",
 
-        "rating_text":
-            "📊 RANKINGS\n\n"
-            "⭐ PLAYER RATING\n"
-            "Система рейтинга работает отдельно для каждого игрока.\n\n"
-            "👥 TEAM RATING\n"
-            "У команд будет отдельный рейтинг.",
+        "ranking_text":
+            "📊 RANKING\n\n"
+            "⭐ PLAYER RANKING — индивидуальный рейтинг игроков.\n\n"
+            "👥 TEAM RANKING — отдельный рейтинг команд 3v3.",
 
         "news_empty":
-            "📰 Новости\n\n"
-            "Пока новостей нет.",
+            "📰 Пока новостей нет.",
 
         "rules_text":
-            "📜 Правила Arena\n\n"
+            "📜 ПРАВИЛА ARENA\n\n"
             "• Читы запрещены.\n"
-            "• Запрещены оскорбления и токсичное поведение.\n"
-            "• Нельзя использовать сторонние программы.\n"
+            "• Сторонние программы запрещены.\n"
+            "• Оскорбления и токсичное поведение запрещены.\n"
             "• Решение администрации является окончательным.\n"
             "• За нарушение правил игрок может быть дисквалифицирован.",
 
-        "choose_language":
-            "🌐 Выберите язык / Choose your language:"
+        "help_text":
+            "❓ ПОМОЩЬ\n\n"
+            "🏆 Турниры — участие в соревнованиях.\n"
+            "👥 Команды — создание команды 3v3.\n"
+            "📊 Рейтинг — рейтинг игроков и команд.\n"
+            "👤 Профиль — твоя статистика.\n"
+            "📰 Новости — актуальные объявления.\n\n"
+            "Если нужна помощь администрации — обратись к администратору Arena.",
+
+        "settings_text":
+            "⚙️ НАСТРОЙКИ\n\n"
+            "Здесь будут настройки языка, уведомлений и профиля.",
+
+        "create_team":
+            "➕ Создать команду",
+
+        "my_team":
+            "👥 Моя команда",
+
+        "team_invites":
+            "🔗 Приглашения",
+
+        "player_ranking":
+            "🥇 Игроки",
+
+        "team_ranking":
+            "👥 Команды"
     },
+
 
     "en": {
         "welcome":
             "🏆 BRAWL STARS ARENA\n\n"
-            "Welcome to Brawl Stars Arena!\n\n"
-            "Tournaments, teams, rankings and competition "
-            "for Brawl Stars players.\n\n"
+            "Welcome!\n\n"
+            "Tournaments • Teams • Rankings\n\n"
             "Here, activity and skill matter.",
-
-        "menu": "🏆 Main Menu",
 
         "profile": "👤 Profile",
         "tournaments": "🏆 Tournaments",
         "team": "👥 Team",
-        "rating": "📊 Rankings",
+        "ranking": "📊 Ranking",
         "news": "📰 News",
+        "settings": "⚙️ Settings",
+        "help": "❓ Help",
         "rules": "📜 Rules",
-        "language": "🌐 Language",
 
-        "profile_empty":
-            "👤 Your Profile\n\n"
-            "Nickname: not set\n"
-            "Player ID: not set\n"
-            "Country: not set\n\n"
-            "⭐ Rating: 1000\n"
-            "🏆 Wins: 0\n"
-            "❌ Losses: 0",
+        "register": "📝 Registration",
+        "stats": "📈 Statistics",
+
+        "back": "⬅️ Back",
+        "home": "🏠 Main Menu",
+
+        "choose_language":
+            "🌐 Choose your language:",
+
+        "profile_title":
+            "👤 YOUR PROFILE\n\n",
+
+        "not_registered":
+            "You are not registered yet.\n\n"
+            "Press «📝 Registration» to create your profile.",
+
+        "ask_nickname":
+            "🎮 Enter your Brawl Stars nickname:",
+
+        "ask_player_id":
+            "🆔 Enter your Player ID:",
+
+        "ask_country":
+            "🌎 Enter your country:",
+
+        "registration_done":
+            "✅ Registration completed!\n\n"
+            "Welcome to Brawl Stars Arena.\n"
+            "Your starting rating: ⭐ 1000",
 
         "tournaments_empty":
-            "🏆 Tournaments\n\n"
-            "There are no active tournaments right now.\n\n"
-            "New tournaments will appear here.",
+            "🏆 There are no active tournaments right now.\n\n"
+            "Follow the news for upcoming tournaments.",
 
         "team_empty":
-            "👥 Teams\n\n"
-            "You don't have a team yet.\n\n"
-            "Later you will be able to create a 3-player "
-            "team or join an existing one.",
+            "👥 You don't have a team yet.\n\n"
+            "A 3v3 team must have exactly 3 players.",
 
-        "rating_text":
-            "📊 RANKINGS\n\n"
-            "⭐ PLAYER RATING\n"
-            "Each player will have an individual rating.\n\n"
-            "👥 TEAM RATING\n"
-            "Teams will have a separate rating.",
+        "ranking_text":
+            "📊 RANKING\n\n"
+            "⭐ PLAYER RANKING — individual player rating.\n\n"
+            "👥 TEAM RANKING — separate 3v3 team rating.",
 
         "news_empty":
-            "📰 News\n\n"
-            "There are no news yet.",
+            "📰 There are no news yet.",
 
         "rules_text":
-            "📜 Arena Rules\n\n"
+            "📜 ARENA RULES\n\n"
             "• Cheats are forbidden.\n"
-            "• Toxic behavior and insults are forbidden.\n"
             "• Third-party programs are forbidden.\n"
+            "• Insults and toxic behavior are forbidden.\n"
             "• Admin decisions are final.\n"
             "• Breaking the rules may result in disqualification.",
 
-        "choose_language":
-            "🌐 Выберите язык / Choose your language:"
+        "help_text":
+            "❓ HELP\n\n"
+            "🏆 Tournaments — compete in events.\n"
+            "👥 Teams — create a 3v3 team.\n"
+            "📊 Ranking — player and team rankings.\n"
+            "👤 Profile — your statistics.\n"
+            "📰 News — latest announcements.",
+
+        "settings_text":
+            "⚙️ SETTINGS\n\n"
+            "Language, notifications and profile settings will be available here.",
+
+        "create_team":
+            "➕ Create Team",
+
+        "my_team":
+            "👥 My Team",
+
+        "team_invites":
+            "🔗 Invitations",
+
+        "player_ranking":
+            "🥇 Players",
+
+        "team_ranking":
+            "👥 Teams"
     },
+
 
     "uz": {
         "welcome":
             "🏆 BRAWL STARS ARENA\n\n"
-            "Brawl Stars Arena'ga xush kelibsiz!\n\n"
-            "Turnirlar, jamoalar, reytinglar va musobaqalar.\n\n"
+            "Xush kelibsiz!\n\n"
+            "Turnirlar • Jamoalar • Reytinglar\n\n"
             "Bu yerda mahorat va faollik muhim.",
-
-        "menu": "🏆 Asosiy menyu",
 
         "profile": "👤 Profil",
         "tournaments": "🏆 Turnirlar",
         "team": "👥 Jamoa",
-        "rating": "📊 Reyting",
+        "ranking": "📊 Reyting",
         "news": "📰 Yangiliklar",
+        "settings": "⚙️ Sozlamalar",
+        "help": "❓ Yordam",
         "rules": "📜 Qoidalar",
-        "language": "🌐 Til",
 
-        "profile_empty":
-            "👤 Profilingiz\n\n"
-            "Nik: kiritilmagan\n"
-            "Player ID: kiritilmagan\n"
-            "Davlat: kiritilmagan\n\n"
-            "⭐ Reyting: 1000\n"
-            "🏆 G'alabalar: 0\n"
-            "❌ Mag'lubiyatlar: 0",
+        "register": "📝 Ro'yxatdan o'tish",
+        "stats": "📈 Statistika",
 
-        "tournaments_empty":
-            "🏆 Turnirlar\n\n"
-            "Hozircha faol turnirlar yo'q.",
-
-        "team_empty":
-            "👥 Jamoalar\n\n"
-            "Sizda hali jamoa yo'q.\n\n"
-            "Keyinchalik 3 kishilik jamoa yaratishingiz "
-            "yoki mavjud jamoaga qo'shilishingiz mumkin.",
-
-        "rating_text":
-            "📊 REYTING\n\n"
-            "⭐ O'YINCHI REYTINGI\n"
-            "Har bir o'yinchining alohida reytingi bo'ladi.\n\n"
-            "👥 JAMOA REYTINGI\n"
-            "Jamoalar uchun alohida reyting bo'ladi.",
-
-        "news_empty":
-            "📰 Yangiliklar\n\n"
-            "Hozircha yangiliklar yo'q.",
-
-        "rules_text":
-            "📜 Arena qoidalari\n\n"
-            "• Cheat taqiqlangan.\n"
-            "• Haqorat va toksik xatti-harakatlar taqiqlangan.\n"
-            "• Begona dasturlardan foydalanish taqiqlangan.\n"
-            "• Administrator qarori yakuniy hisoblanadi.",
+        "back": "⬅️ Orqaga",
+        "home": "🏠 Bosh menyu",
 
         "choose_language":
-            "🌐 Tilni tanlang:"
+            "🌐 Tilni tanlang:",
+
+        "profile_title":
+            "👤 PROFILINGIZ\n\n",
+
+        "not_registered":
+            "Siz hali ro'yxatdan o'tmagansiz.\n\n"
+            "Profil yaratish uchun «📝 Ro'yxatdan o'tish» tugmasini bosing.",
+
+        "ask_nickname":
+            "🎮 Brawl Stars nikkingizni kiriting:",
+
+        "ask_player_id":
+            "🆔 Player ID ni kiriting:",
+
+        "ask_country":
+            "🌎 Davlatingizni kiriting:",
+
+        "registration_done":
+            "✅ Ro'yxatdan o'tish yakunlandi!\n\n"
+            "Brawl Stars Arena'ga xush kelibsiz.\n"
+            "Boshlang'ich reyting: ⭐ 1000",
+
+        "tournaments_empty":
+            "🏆 Hozircha faol turnirlar yo'q.",
+
+        "team_empty":
+            "👥 Sizda hali jamoa yo'q.\n\n"
+            "3v3 jamoa aynan 3 o'yinchidan iborat bo'lishi kerak.",
+
+        "ranking_text":
+            "📊 REYTING\n\n"
+            "⭐ O'YINCHILAR REYTINGI\n"
+            "Har bir o'yinchining alohida reytingi.\n\n"
+            "👥 JAMOALAR REYTINGI\n"
+            "3v3 jamoalar uchun alohida reyting.",
+
+        "news_empty":
+            "📰 Hozircha yangiliklar yo'q.",
+
+        "rules_text":
+            "📜 ARENA QOIDALARI\n\n"
+            "• Cheat taqiqlangan.\n"
+            "• Begona dasturlar taqiqlangan.\n"
+            "• Haqorat va toksik xatti-harakatlar taqiqlangan.",
+
+        "help_text":
+            "❓ YORDAM\n\n"
+            "🏆 Turnirlar — musobaqalarda qatnashing.\n"
+            "👥 Jamoalar — 3v3 jamoa yarating.\n"
+            "📊 Reyting — o'yinchi va jamoalar reytingi.\n"
+            "👤 Profil — statistika.\n"
+            "📰 Yangiliklar — so'nggi xabarlar.",
+
+        "settings_text":
+            "⚙️ SOZLAMALAR\n\n"
+            "Til, bildirishnomalar va profil sozlamalari.",
+
+        "create_team":
+            "➕ Jamoa yaratish",
+
+        "my_team":
+            "👥 Mening jamoam",
+
+        "team_invites":
+            "🔗 Takliflar",
+
+        "player_ranking":
+            "🥇 O'yinchilar",
+
+        "team_ranking":
+            "👥 Jamoalar"
     },
+
 
     "pt": {
         "welcome":
             "🏆 BRAWL STARS ARENA\n\n"
-            "Bem-vindo à Brawl Stars Arena!\n\n"
-            "Torneios, equipes, rankings e competições "
-            "para jogadores de Brawl Stars.\n\n"
+            "Bem-vindo!\n\n"
+            "Torneios • Equipes • Rankings\n\n"
             "Aqui, atividade e habilidade importam.",
-
-        "menu": "🏆 Menu Principal",
 
         "profile": "👤 Perfil",
         "tournaments": "🏆 Torneios",
         "team": "👥 Equipe",
-        "rating": "📊 Ranking",
+        "ranking": "📊 Ranking",
         "news": "📰 Notícias",
+        "settings": "⚙️ Configurações",
+        "help": "❓ Ajuda",
         "rules": "📜 Regras",
-        "language": "🌐 Idioma",
 
-        "profile_empty":
-            "👤 Seu Perfil\n\n"
-            "Apelido: não definido\n"
-            "Player ID: não definido\n"
-            "País: não definido\n\n"
-            "⭐ Rating: 1000\n"
-            "🏆 Vitórias: 0\n"
-            "❌ Derrotas: 0",
+        "register": "📝 Registro",
+        "stats": "📈 Estatísticas",
+
+        "back": "⬅️ Voltar",
+        "home": "🏠 Menu Principal",
+
+        "choose_language":
+            "🌐 Escolha seu idioma:",
+
+        "profile_title":
+            "👤 SEU PERFIL\n\n",
+
+        "not_registered":
+            "Você ainda não está registrado.\n\n"
+            "Pressione «📝 Registro» para criar seu perfil.",
+
+        "ask_nickname":
+            "🎮 Digite seu apelido no Brawl Stars:",
+
+        "ask_player_id":
+            "🆔 Digite seu Player ID:",
+
+        "ask_country":
+            "🌎 Digite seu país:",
+
+        "registration_done":
+            "✅ Registro concluído!\n\n"
+            "Bem-vindo à Brawl Stars Arena.\n"
+            "Seu rating inicial: ⭐ 1000",
 
         "tournaments_empty":
-            "🏆 Torneios\n\n"
-            "Não há torneios ativos no momento.",
+            "🏆 Não há torneios ativos no momento.",
 
         "team_empty":
-            "👥 Equipes\n\n"
-            "Você ainda não possui uma equipe.\n\n"
-            "Mais tarde você poderá criar uma equipe "
-            "de 3 jogadores ou entrar em uma existente.",
+            "👥 Você ainda não possui uma equipe.\n\n"
+            "Uma equipe 3v3 deve ter exatamente 3 jogadores.",
 
-        "rating_text":
+        "ranking_text":
             "📊 RANKING\n\n"
             "⭐ RANKING DE JOGADORES\n"
             "Cada jogador terá um ranking individual.\n\n"
@@ -320,27 +454,49 @@ TEXTS = {
             "As equipes terão um ranking separado.",
 
         "news_empty":
-            "📰 Notícias\n\n"
-            "Ainda não há notícias.",
+            "📰 Ainda não há notícias.",
 
         "rules_text":
-            "📜 Regras da Arena\n\n"
+            "📜 REGRAS DA ARENA\n\n"
             "• Cheats são proibidos.\n"
-            "• Ofensas e comportamento tóxico são proibidos.\n"
             "• Programas de terceiros são proibidos.\n"
-            "• As decisões dos administradores são finais.",
+            "• Ofensas e comportamento tóxico são proibidos.",
 
-        "choose_language":
-            "🌐 Escolha seu idioma:"
+        "help_text":
+            "❓ AJUDA\n\n"
+            "🏆 Torneios — participe das competições.\n"
+            "👥 Equipes — crie uma equipe 3v3.\n"
+            "📊 Ranking — jogadores e equipes.\n"
+            "👤 Perfil — suas estatísticas.\n"
+            "📰 Notícias — últimos anúncios.",
+
+        "settings_text":
+            "⚙️ CONFIGURAÇÕES\n\n"
+            "Idioma, notificações e configurações do perfil.",
+
+        "create_team":
+            "➕ Criar equipe",
+
+        "my_team":
+            "👥 Minha equipe",
+
+        "team_invites":
+            "🔗 Convites",
+
+        "player_ranking":
+            "🥇 Jogadores",
+
+        "team_ranking":
+            "👥 Equipes"
     }
 }
 
 
-# =========================
-# DATABASE FUNCTIONS
-# =========================
+# ============================================================
+# USER
+# ============================================================
 
-def create_user(user: types.User):
+def create_user(user):
     cursor.execute(
         "SELECT telegram_id FROM users WHERE telegram_id = ?",
         (user.id,)
@@ -348,7 +504,11 @@ def create_user(user: types.User):
 
     if cursor.fetchone() is None:
         cursor.execute(
-            "INSERT INTO users (telegram_id, username) VALUES (?, ?)",
+            """
+            INSERT INTO users
+            (telegram_id, username)
+            VALUES (?, ?)
+            """,
             (user.id, user.username or "")
         )
         db.commit()
@@ -362,23 +522,25 @@ def get_language(user_id):
 
     result = cursor.fetchone()
 
-    if result:
-        return result[0]
-
-    return "en"
+    return result[0] if result else "en"
 
 
 def set_language(user_id, language):
     cursor.execute(
-        "UPDATE users SET language = ? WHERE telegram_id = ?",
+        """
+        UPDATE users
+        SET language = ?
+        WHERE telegram_id = ?
+        """,
         (language, user_id)
     )
+
     db.commit()
 
 
-# =========================
+# ============================================================
 # KEYBOARDS
-# =========================
+# ============================================================
 
 def language_keyboard():
     return InlineKeyboardMarkup(
@@ -408,21 +570,28 @@ def language_keyboard():
 
 
 def main_menu(lang):
+
     t = TEXTS[lang]
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=t["profile"],
-                    callback_data="profile"
+                    text=t["tournaments"],
+                    callback_data="tournaments"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text=t["tournaments"],
-                    callback_data="tournaments"
+                    text=t["profile"],
+                    callback_data="profile"
                 ),
+                InlineKeyboardButton(
+                    text=t["ranking"],
+                    callback_data="ranking"
+                )
+            ],
+            [
                 InlineKeyboardButton(
                     text=t["team"],
                     callback_data="team"
@@ -430,107 +599,194 @@ def main_menu(lang):
             ],
             [
                 InlineKeyboardButton(
-                    text=t["rating"],
-                    callback_data="rating"
-                ),
-                InlineKeyboardButton(
                     text=t["news"],
                     callback_data="news"
+                ),
+                InlineKeyboardButton(
+                    text=t["settings"],
+                    callback_data="settings"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text=t["rules"],
-                    callback_data="rules"
+                    text=t["help"],
+                    callback_data="help"
                 ),
                 InlineKeyboardButton(
-                    text=t["language"],
-                    callback_data="language"
+                    text=t["rules"],
+                    callback_data="rules"
                 )
             ]
         ]
     )
 
 
-def back_button(lang):
-    text = {
-        "ru": "⬅️ Назад",
-        "en": "⬅️ Back",
-        "uz": "⬅️ Orqaga",
-        "pt": "⬅️ Voltar"
-    }
+def profile_menu(lang):
+
+    t = TEXTS[lang]
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=text[lang],
-                    callback_data="back"
+                    text=t["register"],
+                    callback_data="register"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=t["stats"],
+                    callback_data="stats"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=t["back"],
+                    callback_data="home"
                 )
             ]
         ]
     )
 
 
-# =========================
+def team_menu(lang):
+
+    t = TEXTS[lang]
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t["create_team"],
+                    callback_data="create_team"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=t["my_team"],
+                    callback_data="my_team"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=t["team_invites"],
+                    callback_data="team_invites"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=t["back"],
+                    callback_data="home"
+                )
+            ]
+        ]
+    )
+
+
+def ranking_menu(lang):
+
+    t = TEXTS[lang]
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t["player_ranking"],
+                    callback_data="player_ranking"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=t["team_ranking"],
+                    callback_data="team_ranking"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=t["back"],
+                    callback_data="home"
+                )
+            ]
+        ]
+    )
+
+
+def back_menu(lang):
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=TEXTS[lang]["back"],
+                    callback_data="home"
+                )
+            ]
+        ]
+    )
+
+
+# ============================================================
 # START
-# =========================
+# ============================================================
 
 @dp.message(CommandStart())
 async def start(message: types.Message):
 
     create_user(message.from_user)
 
-    lang = get_language(message.from_user.id)
-
     await message.answer(
         "🏆 BRAWL STARS ARENA\n\n"
         "🇷🇺 Добро пожаловать в Brawl Stars Arena!\n"
-        "Турниры, команды, рейтинги и соревнования.\n"
+        "Турниры • Команды • Рейтинги\n"
         "Здесь решают активность и мастерство.\n\n"
         "🇬🇧 Welcome to Brawl Stars Arena!\n"
-        "Tournaments, teams, rankings and competition.\n"
+        "Tournaments • Teams • Rankings\n"
         "Here, activity and skill matter.\n\n"
-        "🌎 Choose your language / Выберите язык:",
+        "🌎 Выберите язык / Choose your language:",
         reply_markup=language_keyboard()
     )
 
 
-# =========================
+# ============================================================
 # LANGUAGE
-# =========================
+# ============================================================
 
 @dp.callback_query(lambda c: c.data.startswith("lang_"))
 async def language_selected(callback: types.CallbackQuery):
 
     lang = callback.data.replace("lang_", "")
 
+    create_user(callback.from_user)
     set_language(callback.from_user.id, lang)
 
-    t = TEXTS[lang]
-
     await callback.message.edit_text(
-        t["welcome"],
+        TEXTS[lang]["welcome"],
         reply_markup=main_menu(lang)
     )
 
     await callback.answer()
 
 
-@dp.callback_query(lambda c: c.data == "language")
-async def language(callback: types.CallbackQuery):
+# ============================================================
+# HOME
+# ============================================================
+
+@dp.callback_query(lambda c: c.data == "home")
+async def home(callback: types.CallbackQuery):
+
+    lang = get_language(callback.from_user.id)
 
     await callback.message.edit_text(
-        TEXTS[get_language(callback.from_user.id)]["choose_language"],
-        reply_markup=language_keyboard()
+        TEXTS[lang]["welcome"],
+        reply_markup=main_menu(lang)
     )
 
     await callback.answer()
 
 
-# =========================
+# ============================================================
 # PROFILE
-# =========================
+# ============================================================
 
 @dp.callback_query(lambda c: c.data == "profile")
 async def profile(callback: types.CallbackQuery):
@@ -539,7 +795,8 @@ async def profile(callback: types.CallbackQuery):
 
     cursor.execute(
         """
-        SELECT nickname, player_id, country, rating, wins, losses
+        SELECT nickname, player_id, country,
+               rating, wins, losses
         FROM users
         WHERE telegram_id = ?
         """,
@@ -548,17 +805,18 @@ async def profile(callback: types.CallbackQuery):
 
     user = cursor.fetchone()
 
-    if user:
+    if not user:
+        text = TEXTS[lang]["not_registered"]
+
+    else:
+
         nickname, player_id, country, rating, wins, losses = user
 
         if not nickname:
-            await callback.message.edit_text(
-                TEXTS[lang]["profile_empty"],
-                reply_markup=back_button(lang)
-            )
+            text = TEXTS[lang]["not_registered"]
         else:
             text = (
-                f"👤 {TEXTS[lang]['profile']}\n\n"
+                f"{TEXTS[lang]['profile_title']}"
                 f"🎮 Nickname: {nickname}\n"
                 f"🆔 Player ID: {player_id}\n"
                 f"🌎 Country: {country}\n\n"
@@ -567,17 +825,153 @@ async def profile(callback: types.CallbackQuery):
                 f"❌ Losses: {losses}"
             )
 
-            await callback.message.edit_text(
-                text,
-                reply_markup=back_button(lang)
-            )
+    await callback.message.edit_text(
+        text,
+        reply_markup=profile_menu(lang)
+    )
 
     await callback.answer()
 
 
-# =========================
+# ============================================================
+# REGISTRATION
+# ============================================================
+
+registration_state = {}
+
+
+@dp.callback_query(lambda c: c.data == "register")
+async def register_start(callback: types.CallbackQuery):
+
+    lang = get_language(callback.from_user.id)
+
+    registration_state[callback.from_user.id] = {
+        "step": "nickname"
+    }
+
+    await callback.message.edit_text(
+        TEXTS[lang]["ask_nickname"]
+    )
+
+    await callback.answer()
+
+
+@dp.message()
+async def registration_messages(message: types.Message):
+
+    user_id = message.from_user.id
+
+    if user_id not in registration_state:
+        return
+
+    state = registration_state[user_id]
+    lang = get_language(user_id)
+
+    if state["step"] == "nickname":
+
+        state["nickname"] = message.text
+        state["step"] = "player_id"
+
+        await message.answer(
+            TEXTS[lang]["ask_player_id"]
+        )
+
+        return
+
+    if state["step"] == "player_id":
+
+        state["player_id"] = message.text
+        state["step"] = "country"
+
+        await message.answer(
+            TEXTS[lang]["ask_country"]
+        )
+
+        return
+
+    if state["step"] == "country":
+
+        country = message.text
+
+        nickname = state["nickname"]
+        player_id = state["player_id"]
+
+        cursor.execute(
+            """
+            UPDATE users
+            SET nickname = ?,
+                player_id = ?,
+                country = ?
+            WHERE telegram_id = ?
+            """,
+            (
+                nickname,
+                player_id,
+                country,
+                user_id
+            )
+        )
+
+        db.commit()
+
+        del registration_state[user_id]
+
+        await message.answer(
+            TEXTS[lang]["registration_done"],
+            reply_markup=main_menu(lang)
+        )
+
+
+# ============================================================
+# STATISTICS
+# ============================================================
+
+@dp.callback_query(lambda c: c.data == "stats")
+async def stats(callback: types.CallbackQuery):
+
+    lang = get_language(callback.from_user.id)
+
+    cursor.execute(
+        """
+        SELECT nickname, rating, wins, losses
+        FROM users
+        WHERE telegram_id = ?
+        """,
+        (callback.from_user.id,)
+    )
+
+    user = cursor.fetchone()
+
+    if not user or not user[0]:
+
+        text = TEXTS[lang]["not_registered"]
+
+    else:
+
+        nickname, rating, wins, losses = user
+
+        total = wins + losses
+
+        text = (
+            f"📈 STATISTICS\n\n"
+            f"🎮 {nickname}\n\n"
+            f"⭐ Rating: {rating}\n"
+            f"🏆 Wins: {wins}\n"
+            f"❌ Losses: {losses}\n"
+            f"🎯 Matches: {total}"
+        )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=back_menu(lang)
+    )
+
+    await callback.answer()
+
+
+# ============================================================
 # TOURNAMENTS
-# =========================
+# ============================================================
 
 @dp.callback_query(lambda c: c.data == "tournaments")
 async def tournaments(callback: types.CallbackQuery):
@@ -586,42 +980,41 @@ async def tournaments(callback: types.CallbackQuery):
 
     cursor.execute(
         """
-        SELECT name, mode, prize, status
+        SELECT name, mode, prize
         FROM tournaments
         WHERE status = 'open'
         """
     )
 
-    tournaments_list = cursor.fetchall()
+    items = cursor.fetchall()
 
-    if not tournaments_list:
-        await callback.message.edit_text(
-            TEXTS[lang]["tournaments_empty"],
-            reply_markup=back_button(lang)
-        )
+    if not items:
+
+        text = TEXTS[lang]["tournaments_empty"]
+
     else:
+
         text = "🏆 TOURNAMENTS\n\n"
 
-        for tournament in tournaments_list:
-            name, mode, prize, status = tournament
+        for name, mode, prize in items:
 
             text += (
                 f"🔥 {name}\n"
-                f"🎮 Format: {mode}\n"
-                f"🎁 Prize: {prize}\n\n"
+                f"🎮 {mode}\n"
+                f"🎁 {prize}\n\n"
             )
 
-        await callback.message.edit_text(
-            text,
-            reply_markup=back_button(lang)
-        )
+    await callback.message.edit_text(
+        text,
+        reply_markup=back_menu(lang)
+    )
 
     await callback.answer()
 
 
-# =========================
+# ============================================================
 # TEAM
-# =========================
+# ============================================================
 
 @dp.callback_query(lambda c: c.data == "team")
 async def team(callback: types.CallbackQuery):
@@ -630,32 +1023,151 @@ async def team(callback: types.CallbackQuery):
 
     await callback.message.edit_text(
         TEXTS[lang]["team_empty"],
-        reply_markup=back_button(lang)
+        reply_markup=team_menu(lang)
     )
 
     await callback.answer()
 
 
-# =========================
-# RATING
-# =========================
-
-@dp.callback_query(lambda c: c.data == "rating")
-async def rating(callback: types.CallbackQuery):
+@dp.callback_query(lambda c: c.data == "create_team")
+async def create_team(callback: types.CallbackQuery):
 
     lang = get_language(callback.from_user.id)
 
     await callback.message.edit_text(
-        TEXTS[lang]["rating_text"],
-        reply_markup=back_button(lang)
+        "👥 CREATE TEAM\n\n"
+        "Эта функция будет добавлена следующим этапом.\n\n"
+        "Команда будет состоять ровно из 3 игроков.",
+        reply_markup=back_menu(lang)
     )
 
     await callback.answer()
 
 
-# =========================
+@dp.callback_query(lambda c: c.data == "my_team")
+async def my_team(callback: types.CallbackQuery):
+
+    lang = get_language(callback.from_user.id)
+
+    await callback.message.edit_text(
+        TEXTS[lang]["team_empty"],
+        reply_markup=back_menu(lang)
+    )
+
+    await callback.answer()
+
+
+@dp.callback_query(lambda c: c.data == "team_invites")
+async def team_invites(callback: types.CallbackQuery):
+
+    lang = get_language(callback.from_user.id)
+
+    await callback.message.edit_text(
+        "🔗 INVITATIONS\n\n"
+        "Система приглашений будет добавлена следующим этапом.",
+        reply_markup=back_menu(lang)
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# RANKING
+# ============================================================
+
+@dp.callback_query(lambda c: c.data == "ranking")
+async def ranking(callback: types.CallbackQuery):
+
+    lang = get_language(callback.from_user.id)
+
+    await callback.message.edit_text(
+        TEXTS[lang]["ranking_text"],
+        reply_markup=ranking_menu(lang)
+    )
+
+    await callback.answer()
+
+
+@dp.callback_query(lambda c: c.data == "player_ranking")
+async def player_ranking(callback: types.CallbackQuery):
+
+    lang = get_language(callback.from_user.id)
+
+    cursor.execute(
+        """
+        SELECT nickname, rating
+        FROM users
+        WHERE nickname != ''
+        ORDER BY rating DESC
+        LIMIT 10
+        """
+    )
+
+    players = cursor.fetchall()
+
+    if not players:
+
+        text = "🥇 PLAYER RANKING\n\nNo registered players yet."
+
+    else:
+
+        text = "🥇 PLAYER RANKING\n\n"
+
+        for index, (nickname, rating) in enumerate(players, 1):
+
+            text += (
+                f"{index}. {nickname} — ⭐ {rating}\n"
+            )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=back_menu(lang)
+    )
+
+    await callback.answer()
+
+
+@dp.callback_query(lambda c: c.data == "team_ranking")
+async def team_ranking(callback: types.CallbackQuery):
+
+    lang = get_language(callback.from_user.id)
+
+    cursor.execute(
+        """
+        SELECT name, rating
+        FROM teams
+        ORDER BY rating DESC
+        LIMIT 10
+        """
+    )
+
+    teams = cursor.fetchall()
+
+    if not teams:
+
+        text = "👥 TEAM RANKING\n\nNo teams yet."
+
+    else:
+
+        text = "👥 TEAM RANKING\n\n"
+
+        for index, (name, rating) in enumerate(teams, 1):
+
+            text += (
+                f"{index}. {name} — ⭐ {rating}\n"
+            )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=back_menu(lang)
+    )
+
+    await callback.answer()
+
+
+# ============================================================
 # NEWS
-# =========================
+# ============================================================
 
 @dp.callback_query(lambda c: c.data == "news")
 async def news(callback: types.CallbackQuery):
@@ -663,34 +1175,106 @@ async def news(callback: types.CallbackQuery):
     lang = get_language(callback.from_user.id)
 
     cursor.execute(
-        "SELECT title, text FROM news ORDER BY id DESC LIMIT 10"
+        """
+        SELECT title, text
+        FROM news
+        ORDER BY id DESC
+        LIMIT 10
+        """
     )
 
-    news_list = cursor.fetchall()
+    items = cursor.fetchall()
 
-    if not news_list:
-        await callback.message.edit_text(
-            TEXTS[lang]["news_empty"],
-            reply_markup=back_button(lang)
-        )
+    if not items:
+
+        text = TEXTS[lang]["news_empty"]
 
     else:
+
         text = "📰 NEWS\n\n"
 
-        for title, news_text in news_list:
-            text += f"🔥 {title}\n{news_text}\n\n"
+        for title, news_text in items:
 
-        await callback.message.edit_text(
-            text,
-            reply_markup=back_button(lang)
-        )
+            text += (
+                f"🔥 {title}\n"
+                f"{news_text}\n\n"
+            )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=back_menu(lang)
+    )
 
     await callback.answer()
 
 
-# =========================
+# ============================================================
+# SETTINGS
+# ============================================================
+
+@dp.callback_query(lambda c: c.data == "settings")
+async def settings(callback: types.CallbackQuery):
+
+    lang = get_language(callback.from_user.id)
+
+    await callback.message.edit_text(
+        TEXTS[lang]["settings_text"],
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=TEXTS[lang]["language"],
+                        callback_data="language"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text=TEXTS[lang]["back"],
+                        callback_data="home"
+                    )
+                ]
+            ]
+        )
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# LANGUAGE SETTINGS
+# ============================================================
+
+@dp.callback_query(lambda c: c.data == "language")
+async def language_settings(callback: types.CallbackQuery):
+
+    await callback.message.edit_text(
+        "🌐 Выберите язык / Choose your language:",
+        reply_markup=language_keyboard()
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# HELP
+# ============================================================
+
+@dp.callback_query(lambda c: c.data == "help")
+async def help_menu(callback: types.CallbackQuery):
+
+    lang = get_language(callback.from_user.id)
+
+    await callback.message.edit_text(
+        TEXTS[lang]["help_text"],
+        reply_markup=back_menu(lang)
+    )
+
+    await callback.answer()
+
+
+# ============================================================
 # RULES
-# =========================
+# ============================================================
 
 @dp.callback_query(lambda c: c.data == "rules")
 async def rules(callback: types.CallbackQuery):
@@ -699,32 +1283,15 @@ async def rules(callback: types.CallbackQuery):
 
     await callback.message.edit_text(
         TEXTS[lang]["rules_text"],
-        reply_markup=back_button(lang)
+        reply_markup=back_menu(lang)
     )
 
     await callback.answer()
 
 
-# =========================
-# BACK
-# =========================
-
-@dp.callback_query(lambda c: c.data == "back")
-async def back(callback: types.CallbackQuery):
-
-    lang = get_language(callback.from_user.id)
-
-    await callback.message.edit_text(
-        TEXTS[lang]["menu"],
-        reply_markup=main_menu(lang)
-    )
-
-    await callback.answer()
-
-
-# =========================
+# ============================================================
 # RUN
-# =========================
+# ============================================================
 
 async def main():
 

@@ -1,0 +1,176 @@
+import os
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
+
+TOKEN = os.getenv("BOT_TOKEN")
+
+# Временное хранение заявок
+registrations = {}
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🏆 Турниры", callback_data="tournaments")],
+        [InlineKeyboardButton("📝 Подать заявку", callback_data="register")],
+        [InlineKeyboardButton("ℹ️ О клубе", callback_data="about")],
+    ]
+
+    await update.message.reply_text(
+        "🔥 BRAWL STARS TOURNAMENT\n\n"
+        "Добро пожаловать в наш клуб.\n"
+        "Здесь проходят турниры, рейтинги и соревнования игроков.\n\n"
+        "Выбери действие:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "tournaments":
+        keyboard = [
+            [InlineKeyboardButton("🏆 Турнир #1", callback_data="tournament_1")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="back")],
+        ]
+
+        await query.edit_message_text(
+            "🏆 ДОСТУПНЫЕ ТУРНИРЫ\n\n"
+            "Турнир #1\n"
+            "🎮 Brawl Stars\n"
+            "👥 Регистрация открыта\n"
+            "🔥 Скоро старт\n\n"
+            "Выбери турнир:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+
+    elif query.data == "register":
+        context.user_data["registration_step"] = "nickname"
+
+        await query.edit_message_text(
+            "📝 РЕГИСТРАЦИЯ\n\n"
+            "Шаг 1 из 3\n\n"
+            "Напиши свой ник в Brawl Stars:"
+        )
+
+    elif query.data == "about":
+        keyboard = [
+            [InlineKeyboardButton("🔙 Назад", callback_data="back")]
+        ]
+
+        await query.edit_message_text(
+            "🌎 BRAWL STARS TOURNAMENT\n\n"
+            "Международный турнирный клуб для игроков Brawl Stars.\n\n"
+            "🏆 Турниры\n"
+            "📊 Рейтинги\n"
+            "🔥 Соревнования\n"
+            "🌎 Игроки из разных стран\n\n"
+            "Наша цель — создать большое игровое сообщество.",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+
+    elif query.data == "tournament_1":
+        keyboard = [
+            [InlineKeyboardButton("📝 Зарегистрироваться", callback_data="register")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="tournaments")],
+        ]
+
+        await query.edit_message_text(
+            "🏆 ТУРНИР #1\n\n"
+            "🎮 Brawl Stars\n"
+            "👥 Регистрация открыта\n"
+            "💰 Призовой фонд: уточняется\n"
+            "📅 Дата: скоро\n\n"
+            "Нажми кнопку ниже, чтобы подать заявку.",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+
+    elif query.data == "back":
+        keyboard = [
+            [InlineKeyboardButton("🏆 Турниры", callback_data="tournaments")],
+            [InlineKeyboardButton("📝 Подать заявку", callback_data="register")],
+            [InlineKeyboardButton("ℹ️ О клубе", callback_data="about")],
+        ]
+
+        await query.edit_message_text(
+            "🔥 BRAWL STARS TOURNAMENT\n\n"
+            "Главное меню:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+
+
+async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    step = context.user_data.get("registration_step")
+
+    if not step:
+        return
+
+    text = update.message.text.strip()
+
+    if step == "nickname":
+        context.user_data["nickname"] = text
+        context.user_data["registration_step"] = "player_tag"
+
+        await update.message.reply_text(
+            "✅ Ник сохранён.\n\n"
+            "Шаг 2 из 3\n\n"
+            "Теперь отправь свой тег игрока Brawl Stars.\n"
+            "Например: #ABC123"
+        )
+
+    elif step == "player_tag":
+        context.user_data["player_tag"] = text
+        context.user_data["registration_step"] = "telegram"
+
+        await update.message.reply_text(
+            "✅ Тег сохранён.\n\n"
+            "Шаг 3 из 3\n\n"
+            "Напиши свой Telegram @username:"
+        )
+
+    elif step == "telegram":
+        context.user_data["telegram"] = text
+
+        user_id = update.effective_user.id
+
+        registrations[user_id] = {
+            "nickname": context.user_data["nickname"],
+            "player_tag": context.user_data["player_tag"],
+            "telegram": context.user_data["telegram"],
+        }
+
+        context.user_data.clear()
+
+        await update.message.reply_text(
+            "🔥 ЗАЯВКА ПРИНЯТА!\n\n"
+            f"🎮 Ник: {registrations[user_id]['nickname']}\n"
+            f"🏷 Тег: {registrations[user_id]['player_tag']}\n"
+            f"📱 Telegram: {registrations[user_id]['telegram']}\n\n"
+            "Твоя заявка сохранена.\n"
+            "Следи за сообщениями клуба — скоро будет информация о турнире. 🏆"
+        )
+
+
+def main():
+    if not TOKEN:
+        raise RuntimeError("BOT_TOKEN не установлен")
+
+    app = Application.builder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+
+    print("Bot started!")
+
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()

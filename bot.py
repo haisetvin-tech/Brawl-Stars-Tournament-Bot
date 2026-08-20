@@ -13,7 +13,8 @@ from aiogram.types import (
 )
 
 # ============================================================
-# BRAWL STARS ARENA — FINAL
+# BRAWL STARS ARENA
+# ADMIN PANEL + REGISTRATION CONTROL
 # ============================================================
 
 TOKEN = os.getenv("BOT_TOKEN")
@@ -112,9 +113,89 @@ CREATE TABLE IF NOT EXISTS news (
     text TEXT NOT NULL,
     created_at TEXT DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT DEFAULT ''
+);
 """)
 
 db.commit()
+
+
+# ============================================================
+# SETTINGS
+# ============================================================
+
+def init_settings():
+
+    defaults = {
+        "registration_enabled": "1",
+        "tournament_registration_enabled": "1",
+    }
+
+    for key, value in defaults.items():
+
+        db.execute(
+            """
+            INSERT OR IGNORE INTO settings(key, value)
+            VALUES (?, ?)
+            """,
+            (key, value)
+        )
+
+    db.commit()
+
+
+init_settings()
+
+
+def get_setting(key, default="0"):
+
+    row = db.execute(
+        """
+        SELECT value
+        FROM settings
+        WHERE key = ?
+        """,
+        (key,)
+    ).fetchone()
+
+    if not row:
+        return default
+
+    return row["value"]
+
+
+def set_setting(key, value):
+
+    db.execute(
+        """
+        INSERT INTO settings(key, value)
+        VALUES (?, ?)
+        ON CONFLICT(key)
+        DO UPDATE SET value = excluded.value
+        """,
+        (key, str(value))
+    )
+
+    db.commit()
+
+
+def registration_enabled():
+
+    return get_setting(
+        "registration_enabled",
+        "1"
+    ) == "1"
+
+
+def tournament_registration_enabled():
+
+    return get_setting(
+        "tournament_registration_enabled",
+        "1"
+    ) == "1"
 
 
 # ============================================================
@@ -160,15 +241,22 @@ TEXTS = {
         "back": "⬅️ Назад",
         "home": "🏠 Главное меню",
 
-        "choose_language":
-            "🌐 Выбери язык:",
-
         "not_registered":
             "👤 Профиль ещё не создан.\n\n"
             "Нажми «📝 Регистрация».",
 
         "already_registered":
             "Ты уже зарегистрирован.",
+
+        "registration_closed":
+            "🔴 РЕГИСТРАЦИЯ ЗАКРЫТА\n\n"
+            "Администрация временно закрыла регистрацию.\n"
+            "Следи за новостями Arena.",
+
+        "tournament_registration_closed":
+            "🔴 ПОДАЧА ЗАЯВОК ЗАКРЫТА\n\n"
+            "Администрация временно закрыла регистрацию "
+            "на турниры.",
 
         "ask_nickname":
             "🎮 Введи свой ник в Brawl Stars:",
@@ -196,6 +284,20 @@ TEXTS = {
         "no_applications":
             "📋 У тебя пока нет заявок.",
 
+        "admin_only":
+            "🛡️ Эта функция доступна только администрации.",
+
+        "team_empty":
+            "👥 У тебя пока нет команды.\n\n"
+            "Создай команду для участия в 3v3.",
+
+        "team_created":
+            "👥 Команда создана!\n\n"
+            "Теперь пригласи ещё двух игроков.",
+
+        "ranking_empty":
+            "📊 Пока недостаточно данных для рейтинга.",
+
         "settings_text":
             "⚙️ НАСТРОЙКИ\n\n"
             "Выбери язык интерфейса.",
@@ -217,23 +319,8 @@ TEXTS = {
             "4. Запрещены договорные результаты.\n"
             "5. Решение администрации по спорным ситуациям окончательное.\n"
             "6. Нарушение правил может привести к дисквалификации.\n\n"
-            "🔥 Играем честно. Побеждает сильнейший.",
-
-        "team_empty":
-            "👥 У тебя пока нет команды.\n\n"
-            "Создай команду для участия в 3v3.",
-
-        "team_created":
-            "👥 Команда создана!\n\n"
-            "Теперь пригласи ещё двух игроков.",
-
-        "ranking_empty":
-            "📊 Пока недостаточно данных для рейтинга.",
-
-        "admin_only":
-            "🛡️ Эта функция доступна только администрации."
+            "🔥 Играем честно. Побеждает сильнейший."
     },
-
 
     "en": {
 
@@ -272,15 +359,20 @@ TEXTS = {
         "back": "⬅️ Back",
         "home": "🏠 Main Menu",
 
-        "choose_language":
-            "🌐 Choose your language:",
-
         "not_registered":
             "👤 Your profile is not created yet.\n\n"
             "Press «📝 Registration».",
 
         "already_registered":
             "You are already registered.",
+
+        "registration_closed":
+            "🔴 REGISTRATION CLOSED\n\n"
+            "Registration is temporarily closed.",
+
+        "tournament_registration_closed":
+            "🔴 TOURNAMENT REGISTRATION CLOSED\n\n"
+            "Tournament applications are temporarily closed.",
 
         "ask_nickname":
             "🎮 Enter your Brawl Stars nickname:",
@@ -307,9 +399,20 @@ TEXTS = {
         "no_applications":
             "📋 You have no applications yet.",
 
+        "admin_only":
+            "🛡️ This feature is for administrators only.",
+
+        "team_empty":
+            "👥 You don't have a team yet.",
+
+        "team_created":
+            "👥 Team created!",
+
+        "ranking_empty":
+            "📊 Not enough data for the ranking yet.",
+
         "settings_text":
-            "⚙️ SETTINGS\n\n"
-            "Choose your interface language.",
+            "⚙️ SETTINGS\n\nChoose your interface language.",
 
         "help_text":
             "❓ HELP\n\n"
@@ -321,36 +424,19 @@ TEXTS = {
 
         "rules_text":
             "📜 BRAWL STARS ARENA RULES\n\n"
-            "1. Cheats and third-party programs are forbidden.\n"
+            "1. Cheats are forbidden.\n"
             "2. Fake results are forbidden.\n"
-            "3. Insults and toxic behavior are forbidden.\n"
+            "3. Toxic behavior is forbidden.\n"
             "4. Match fixing is forbidden.\n"
-            "5. Admin decisions are final.\n"
-            "6. Violations may result in disqualification.",
-
-        "team_empty":
-            "👥 You don't have a team yet.\n\n"
-            "Create one for 3v3.",
-
-        "team_created":
-            "👥 Team created!\n\n"
-            "Now invite two more players.",
-
-        "ranking_empty":
-            "📊 Not enough data for the ranking yet.",
-
-        "admin_only":
-            "🛡️ This feature is for administrators only."
+            "5. Admin decisions are final."
     },
-
 
     "uz": {
 
         "welcome":
             "🏆 BRAWL STARS ARENA\n\n"
             "Arenaga xush kelibsiz!\n\n"
-            "⚔️ Turnirlar • 👥 Jamoalar • 📊 Reyting\n"
-            "🔥 Halol o‘yin. Kuchli raqobat.",
+            "⚔️ Turnirlar • 👥 Jamoalar • 📊 Reyting",
 
         "tournaments": "🏆 Turnirlar",
         "profile": "👤 Profil",
@@ -381,15 +467,19 @@ TEXTS = {
         "back": "⬅️ Orqaga",
         "home": "🏠 Bosh menyu",
 
-        "choose_language":
-            "🌐 Tilni tanlang:",
-
         "not_registered":
-            "👤 Profilingiz hali yaratilmagan.\n\n"
-            "«📝 Ro‘yxatdan o‘tish» tugmasini bosing.",
+            "👤 Profilingiz hali yaratilmagan.",
 
         "already_registered":
             "Siz allaqachon ro‘yxatdan o‘tgansiz.",
+
+        "registration_closed":
+            "🔴 RO‘YXATDAN O‘TISH YOPIQ\n\n"
+            "Ro‘yxatdan o‘tish vaqtincha yopilgan.",
+
+        "tournament_registration_closed":
+            "🔴 TURNIR RO‘YXATI YOPIQ\n\n"
+            "Turnirlarga ariza topshirish vaqtincha yopilgan.",
 
         "ask_nickname":
             "🎮 Brawl Stars nikkingizni kiriting:",
@@ -402,7 +492,6 @@ TEXTS = {
 
         "registration_done":
             "🔥 RO‘YXATDAN O‘TISH YAKUNLANDI!\n\n"
-            "Arena'ga xush kelibsiz.\n\n"
             "⭐ Boshlang‘ich reyting: 1000\n"
             "🎯 Daraja: 1\n"
             "💎 XP: 0",
@@ -416,50 +505,43 @@ TEXTS = {
         "no_applications":
             "📋 Sizda hali arizalar yo‘q.",
 
+        "admin_only":
+            "🛡️ Bu funksiya faqat administratorlar uchun.",
+
+        "team_empty":
+            "👥 Sizda hali jamoa yo‘q.",
+
+        "team_created":
+            "👥 Jamoa yaratildi!",
+
+        "ranking_empty":
+            "📊 Reyting uchun ma’lumot yetarli emas.",
+
         "settings_text":
-            "⚙️ SOZLAMALAR\n\n"
-            "Interfeys tilini tanlang.",
+            "⚙️ SOZLAMALAR\n\nInterfeys tilini tanlang.",
 
         "help_text":
             "❓ YORDAM\n\n"
             "🏆 Turnirlar — musobaqalarda qatnashing.\n"
             "👤 Profil — profil va statistika.\n"
             "📊 Reyting — o‘yinchilar va jamoalar.\n"
-            "👥 Jamoa — 3v3 jamoa yarating.\n"
-            "📰 Yangiliklar — Arena voqealari.",
+            "👥 Jamoa — 3v3 jamoa yarating.",
 
         "rules_text":
             "📜 ARENA QOIDALARI\n\n"
-            "1. Cheat va begona dasturlar taqiqlangan.\n"
+            "1. Cheat taqiqlangan.\n"
             "2. Soxta natijalar taqiqlangan.\n"
-            "3. Haqorat va toksik xatti-harakatlar taqiqlangan.\n"
+            "3. Toksik xatti-harakat taqiqlangan.\n"
             "4. Kelishilgan natijalar taqiqlangan.\n"
-            "5. Admin qarori yakuniy.\n"
-            "6. Qoidabuzarlik diskvalifikatsiyaga olib kelishi mumkin.",
-
-        "team_empty":
-            "👥 Sizda hali jamoa yo‘q.\n\n"
-            "3v3 uchun jamoa yarating.",
-
-        "team_created":
-            "👥 Jamoa yaratildi!\n\n"
-            "Endi yana ikki o‘yinchini taklif qiling.",
-
-        "ranking_empty":
-            "📊 Reyting uchun ma’lumot yetarli emas.",
-
-        "admin_only":
-            "🛡️ Bu funksiya faqat administratorlar uchun."
+            "5. Admin qarori yakuniy."
     },
-
 
     "pt": {
 
         "welcome":
             "🏆 BRAWL STARS ARENA\n\n"
             "Bem-vindo à arena!\n\n"
-            "⚔️ Torneios • 👥 Equipes • 📊 Rankings\n"
-            "🔥 Jogo limpo. Competição séria.",
+            "⚔️ Torneios • 👥 Equipes • 📊 Rankings",
 
         "tournaments": "🏆 Torneios",
         "profile": "👤 Perfil",
@@ -490,15 +572,19 @@ TEXTS = {
         "back": "⬅️ Voltar",
         "home": "🏠 Menu Principal",
 
-        "choose_language":
-            "🌐 Escolha seu idioma:",
-
         "not_registered":
-            "👤 Seu perfil ainda não foi criado.\n\n"
-            "Pressione «📝 Registro».",
+            "👤 Seu perfil ainda não foi criado.",
 
         "already_registered":
             "Você já está registrado.",
+
+        "registration_closed":
+            "🔴 REGISTRO FECHADO\n\n"
+            "O registro está temporariamente fechado.",
+
+        "tournament_registration_closed":
+            "🔴 INSCRIÇÕES FECHADAS\n\n"
+            "As inscrições para torneios estão temporariamente fechadas.",
 
         "ask_nickname":
             "🎮 Digite seu apelido no Brawl Stars:",
@@ -511,7 +597,6 @@ TEXTS = {
 
         "registration_done":
             "🔥 REGISTRO CONCLUÍDO!\n\n"
-            "Bem-vindo à Arena.\n\n"
             "⭐ Rating inicial: 1000\n"
             "🎯 Nível: 1\n"
             "💎 XP: 0",
@@ -525,46 +610,41 @@ TEXTS = {
         "no_applications":
             "📋 Você ainda não possui inscrições.",
 
+        "admin_only":
+            "🛡️ Esta função é apenas para administradores.",
+
+        "team_empty":
+            "👥 Você ainda não possui uma equipe.",
+
+        "team_created":
+            "👥 Equipe criada!",
+
+        "ranking_empty":
+            "📊 Ainda não há dados suficientes.",
+
         "settings_text":
-            "⚙️ CONFIGURAÇÕES\n\n"
-            "Escolha o idioma da interface.",
+            "⚙️ CONFIGURAÇÕES\n\nEscolha o idioma.",
 
         "help_text":
             "❓ AJUDA\n\n"
             "🏆 Torneios — participe das competições.\n"
             "👤 Perfil — seu perfil e estatísticas.\n"
             "📊 Ranking — jogadores e equipes.\n"
-            "👥 Equipe — crie uma equipe 3v3.\n"
-            "📰 Notícias — eventos da Arena.",
+            "👥 Equipe — crie uma equipe 3v3.",
 
         "rules_text":
             "📜 REGRAS DA ARENA\n\n"
-            "1. Cheats e programas de terceiros são proibidos.\n"
+            "1. Cheats são proibidos.\n"
             "2. Resultados falsos são proibidos.\n"
-            "3. Ofensas e comportamento tóxico são proibidos.\n"
+            "3. Comportamento tóxico é proibido.\n"
             "4. Resultados combinados são proibidos.\n"
-            "5. A decisão da administração é final.\n"
-            "6. Violações podem causar desclassificação.",
-
-        "team_empty":
-            "👥 Você ainda não possui uma equipe.\n\n"
-            "Crie uma para 3v3.",
-
-        "team_created":
-            "👥 Equipe criada!\n\n"
-            "Agora convide mais dois jogadores.",
-
-        "ranking_empty":
-            "📊 Ainda não há dados suficientes.",
-
-        "admin_only":
-            "🛡️ Esta função é apenas para administradores."
+            "5. A decisão do admin é final."
     }
 }
 
 
 # ============================================================
-# SAFE TRANSLATION
+# TRANSLATION
 # ============================================================
 
 def T(lang, key, fallback=None):
@@ -636,12 +716,7 @@ def get_language(user_id):
     if not row:
         return "ru"
 
-    lang = row["language"]
-
-    if lang not in TEXTS:
-        return "ru"
-
-    return lang
+    return row["language"] if row["language"] in TEXTS else "ru"
 
 
 def set_language(user_id, lang):
@@ -655,10 +730,7 @@ def set_language(user_id, lang):
         SET language = ?
         WHERE telegram_id = ?
         """,
-        (
-            lang,
-            user_id
-        )
+        (lang, user_id)
     )
 
     db.commit()
@@ -752,7 +824,7 @@ def reset_state(user_id):
 
 
 # ============================================================
-# KEYBOARDS
+# MAIN MENU
 # ============================================================
 
 def language_keyboard():
@@ -790,47 +862,47 @@ def main_menu(lang):
 
             [
                 InlineKeyboardButton(
-                    text=T(lang, "tournaments"),
+                    text="🏆 ТУРНИРЫ",
                     callback_data="tournaments"
                 )
             ],
 
             [
                 InlineKeyboardButton(
-                    text=T(lang, "profile"),
+                    text="👤 Профиль",
                     callback_data="profile"
                 ),
                 InlineKeyboardButton(
-                    text=T(lang, "ranking"),
+                    text="📊 Рейтинг",
                     callback_data="ranking"
                 )
             ],
 
             [
                 InlineKeyboardButton(
-                    text=T(lang, "team"),
+                    text="👥 Команда",
                     callback_data="team"
                 )
             ],
 
             [
                 InlineKeyboardButton(
-                    text=T(lang, "news"),
+                    text="📰 Новости",
                     callback_data="news"
                 ),
                 InlineKeyboardButton(
-                    text=T(lang, "settings"),
+                    text="⚙️ Настройки",
                     callback_data="settings"
                 )
             ],
 
             [
                 InlineKeyboardButton(
-                    text=T(lang, "help"),
+                    text="❓ Помощь",
                     callback_data="help"
                 ),
                 InlineKeyboardButton(
-                    text=T(lang, "rules"),
+                    text="📜 Правила",
                     callback_data="rules"
                 )
             ]
@@ -856,21 +928,18 @@ def profile_keyboard(lang):
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-
             [
                 InlineKeyboardButton(
                     text=T(lang, "register"),
                     callback_data="register"
                 )
             ],
-
             [
                 InlineKeyboardButton(
                     text=T(lang, "statistics"),
                     callback_data="statistics"
                 )
             ],
-
             [
                 InlineKeyboardButton(
                     text=T(lang, "home"),
@@ -885,7 +954,6 @@ def tournament_keyboard(lang):
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-
             [
                 InlineKeyboardButton(
                     text=T(lang, "one_vs_one"),
@@ -896,21 +964,18 @@ def tournament_keyboard(lang):
                     callback_data="tour_3v3"
                 )
             ],
-
             [
                 InlineKeyboardButton(
                     text=T(lang, "active_tournaments"),
                     callback_data="active_tournaments"
                 )
             ],
-
             [
                 InlineKeyboardButton(
                     text=T(lang, "my_applications"),
                     callback_data="my_applications"
                 )
             ],
-
             [
                 InlineKeyboardButton(
                     text=T(lang, "home"),
@@ -925,21 +990,18 @@ def ranking_keyboard(lang):
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-
             [
                 InlineKeyboardButton(
                     text=T(lang, "players"),
                     callback_data="player_ranking"
                 )
             ],
-
             [
                 InlineKeyboardButton(
                     text=T(lang, "teams"),
                     callback_data="team_ranking"
                 )
             ],
-
             [
                 InlineKeyboardButton(
                     text=T(lang, "home"),
@@ -954,28 +1016,24 @@ def team_keyboard(lang):
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-
             [
                 InlineKeyboardButton(
                     text=T(lang, "create_team"),
                     callback_data="create_team"
                 )
             ],
-
             [
                 InlineKeyboardButton(
                     text=T(lang, "my_team"),
                     callback_data="my_team"
                 )
             ],
-
             [
                 InlineKeyboardButton(
                     text=T(lang, "invites"),
                     callback_data="team_invites"
                 )
             ],
-
             [
                 InlineKeyboardButton(
                     text=T(lang, "home"),
@@ -987,47 +1045,148 @@ def team_keyboard(lang):
 
 
 # ============================================================
-# TELEGRAM COMMAND MENU
+# ADMIN PANEL
+# ============================================================
+
+def admin_keyboard():
+
+    reg = "🟢 ВКЛ" if registration_enabled() else "🔴 ВЫКЛ"
+    tour_reg = (
+        "🟢 ВКЛ"
+        if tournament_registration_enabled()
+        else
+        "🔴 ВЫКЛ"
+    )
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+
+            [
+                InlineKeyboardButton(
+                    text="📊 Статистика",
+                    callback_data="admin_stats"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="👥 Пользователи",
+                    callback_data="admin_users"
+                ),
+                InlineKeyboardButton(
+                    text="📋 Заявки",
+                    callback_data="admin_requests"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🏆 Турниры",
+                    callback_data="admin_tournaments"
+                ),
+                InlineKeyboardButton(
+                    text="➕ Создать турнир",
+                    callback_data="admin_create_tournament"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text=f"📝 Регистрация: {reg}",
+                    callback_data="admin_toggle_registration"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text=f"🏆 Заявки на турниры: {tour_reg}",
+                    callback_data="admin_toggle_tournament_registration"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="📰 Новости",
+                    callback_data="admin_news"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="📢 Рассылка",
+                    callback_data="admin_broadcast"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🏠 Главное меню",
+                    callback_data="home"
+                )
+            ]
+        ]
+    )
+
+
+async def show_admin_panel(message, edit=False):
+
+    text = (
+        "🛡️ BRAWL STARS ARENA\n"
+        "👑 ADMIN PANEL\n\n"
+        "Управление проектом находится здесь.\n\n"
+        f"📝 Регистрация: "
+        f"{'🟢 ВКЛ' if registration_enabled() else '🔴 ВЫКЛ'}\n"
+        f"🏆 Заявки на турниры: "
+        f"{'🟢 ВКЛ' if tournament_registration_enabled() else '🔴 ВЫКЛ'}"
+    )
+
+    if edit:
+        await message.edit_text(
+            text,
+            reply_markup=admin_keyboard()
+        )
+    else:
+        await message.answer(
+            text,
+            reply_markup=admin_keyboard()
+        )
+
+
+# ============================================================
+# COMMANDS
 # ============================================================
 
 async def setup_commands():
 
     commands = [
-
         BotCommand(
             command="start",
             description="🏠 Главная"
         ),
-
         BotCommand(
             command="profile",
             description="👤 Профиль"
         ),
-
         BotCommand(
             command="tournaments",
             description="🏆 Турниры"
         ),
-
         BotCommand(
             command="ranking",
             description="📊 Рейтинг"
         ),
-
         BotCommand(
             command="team",
             description="👥 Команда"
         ),
-
         BotCommand(
             command="news",
             description="📰 Новости"
         ),
-
         BotCommand(
             command="help",
             description="❓ Помощь"
-        )
+        ),
     ]
 
     await bot.set_my_commands(
@@ -1044,7 +1203,6 @@ async def setup_commands():
 async def start_handler(message: types.Message):
 
     ensure_user(message.from_user)
-
     reset_state(message.from_user.id)
 
     await message.answer(
@@ -1067,7 +1225,6 @@ async def start_handler(message: types.Message):
 async def home_handler(callback: types.CallbackQuery):
 
     ensure_user(callback.from_user)
-
     reset_state(callback.from_user.id)
 
     lang = get_language(callback.from_user.id)
@@ -1091,9 +1248,6 @@ async def language_handler(callback: types.CallbackQuery):
 
     lang = callback.data.replace("lang_", "")
 
-    if lang not in TEXTS:
-        lang = "ru"
-
     set_language(
         callback.from_user.id,
         lang
@@ -1114,42 +1268,19 @@ async def language_handler(callback: types.CallbackQuery):
 @dp.callback_query(lambda c: c.data == "settings")
 async def settings_handler(callback: types.CallbackQuery):
 
-    ensure_user(callback.from_user)
-
     lang = get_language(callback.from_user.id)
-
-    # FIX FOR KeyError: 'language'
-    language_text = T(
-        lang,
-        "language",
-        "🌐 Language"
-    )
-
-    settings_text = T(
-        lang,
-        "settings_text",
-        "⚙️ Settings"
-    )
-
-    home_text = T(
-        lang,
-        "home",
-        "🏠 Main Menu"
-    )
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-
             [
                 InlineKeyboardButton(
-                    text=language_text,
+                    text=T(lang, "language"),
                     callback_data="language"
                 )
             ],
-
             [
                 InlineKeyboardButton(
-                    text=home_text,
+                    text=T(lang, "home"),
                     callback_data="home"
                 )
             ]
@@ -1157,7 +1288,7 @@ async def settings_handler(callback: types.CallbackQuery):
     )
 
     await callback.message.edit_text(
-        settings_text,
+        T(lang, "settings_text"),
         reply_markup=keyboard
     )
 
@@ -1180,8 +1311,6 @@ async def language_settings_handler(callback: types.CallbackQuery):
 # ============================================================
 
 async def show_profile(target, user_id):
-
-    ensure_user(target.from_user)
 
     lang = get_language(user_id)
 
@@ -1206,10 +1335,7 @@ async def show_profile(target, user_id):
 
     if not row or not row["nickname"]:
 
-        text = T(
-            lang,
-            "not_registered"
-        )
+        text = T(lang, "not_registered")
 
     else:
 
@@ -1239,11 +1365,14 @@ async def show_profile(target, user_id):
     keyboard = profile_keyboard(lang)
 
     if isinstance(target, types.CallbackQuery):
+
         await target.message.edit_text(
             text,
             reply_markup=keyboard
         )
+
     else:
+
         await target.answer(
             text,
             reply_markup=keyboard
@@ -1282,13 +1411,21 @@ async def register_handler(callback: types.CallbackQuery):
     ensure_user(callback.from_user)
 
     user_id = callback.from_user.id
-
     lang = get_language(user_id)
 
     if is_registered(user_id):
 
         await callback.answer(
             T(lang, "already_registered"),
+            show_alert=True
+        )
+
+        return
+
+    if not registration_enabled():
+
+        await callback.answer(
+            T(lang, "registration_closed"),
             show_alert=True
         )
 
@@ -1314,7 +1451,6 @@ async def register_handler(callback: types.CallbackQuery):
 async def statistics_handler(callback: types.CallbackQuery):
 
     user_id = callback.from_user.id
-
     lang = get_language(user_id)
 
     row = db.execute(
@@ -1336,10 +1472,7 @@ async def statistics_handler(callback: types.CallbackQuery):
 
     if not row or not row["nickname"]:
 
-        text = T(
-            lang,
-            "not_registered"
-        )
+        text = T(lang, "not_registered")
 
     else:
 
@@ -1394,13 +1527,9 @@ async def tournaments_handler(callback: types.CallbackQuery):
     await callback.answer()
 
 
-async def show_tournaments(
-    callback,
-    mode
-):
+async def show_tournaments(callback, mode):
 
     user_id = callback.from_user.id
-
     lang = get_language(user_id)
 
     rows = db.execute(
@@ -1431,19 +1560,27 @@ async def show_tournaments(
         )
 
         await callback.answer()
-
         return
 
     text = f"🏆 {mode}\n\n"
-
     buttons = []
 
     for row in rows:
 
+        count = db.execute(
+            """
+            SELECT COUNT(*) AS c
+            FROM registrations
+            WHERE tournament_id = ?
+            AND status != 'rejected'
+            """,
+            (row["id"],)
+        ).fetchone()["c"]
+
         text += (
             f"🔥 {row['name']}\n"
             f"🎁 Приз: {row['prize'] or '—'}\n"
-            f"👤 Лимит: "
+            f"👤 Игроков: {count}/"
             f"{row['max_players'] or '∞'}\n"
             f"ℹ️ {row['description'] or '—'}\n\n"
         )
@@ -1479,19 +1616,13 @@ async def show_tournaments(
 @dp.callback_query(lambda c: c.data == "tour_1v1")
 async def tournament_1v1(callback: types.CallbackQuery):
 
-    await show_tournaments(
-        callback,
-        "1v1"
-    )
+    await show_tournaments(callback, "1v1")
 
 
 @dp.callback_query(lambda c: c.data == "tour_3v3")
 async def tournament_3v3(callback: types.CallbackQuery):
 
-    await show_tournaments(
-        callback,
-        "3v3"
-    )
+    await show_tournaments(callback, "3v3")
 
 
 @dp.callback_query(lambda c: c.data == "active_tournaments")
@@ -1513,10 +1644,7 @@ async def active_tournaments(callback: types.CallbackQuery):
 
     if not rows:
 
-        text = T(
-            lang,
-            "no_tournaments"
-        )
+        text = T(lang, "no_tournaments")
 
     else:
 
@@ -1553,8 +1681,16 @@ async def active_tournaments(callback: types.CallbackQuery):
 async def join_tournament(callback: types.CallbackQuery):
 
     user_id = callback.from_user.id
-
     lang = get_language(user_id)
+
+    if not tournament_registration_enabled():
+
+        await callback.answer(
+            T(lang, "tournament_registration_closed"),
+            show_alert=True
+        )
+
+        return
 
     if not is_registered(user_id):
 
@@ -1565,9 +1701,7 @@ async def join_tournament(callback: types.CallbackQuery):
 
         return
 
-    tournament_id = int(
-        callback.data[5:]
-    )
+    tournament_id = int(callback.data[5:])
 
     tournament = db.execute(
         """
@@ -1586,7 +1720,7 @@ async def join_tournament(callback: types.CallbackQuery):
     if not tournament:
 
         await callback.answer(
-            "Турнир не найден.",
+            "❌ Турнир не найден.",
             show_alert=True
         )
 
@@ -1595,7 +1729,7 @@ async def join_tournament(callback: types.CallbackQuery):
     if tournament["status"] != "open":
 
         await callback.answer(
-            "Турнир закрыт.",
+            "🔴 Турнир закрыт.",
             show_alert=True
         )
 
@@ -1617,7 +1751,7 @@ async def join_tournament(callback: types.CallbackQuery):
     if exists:
 
         await callback.answer(
-            "Ты уже подал заявку.",
+            "⚠️ Ты уже подал заявку.",
             show_alert=True
         )
 
@@ -1638,7 +1772,7 @@ async def join_tournament(callback: types.CallbackQuery):
         if count >= tournament["max_players"]:
 
             await callback.answer(
-                "Турнир уже заполнен.",
+                "❌ Турнир уже заполнен.",
                 show_alert=True
             )
 
@@ -1700,21 +1834,24 @@ async def applications_handler(callback: types.CallbackQuery):
 
     if not rows:
 
-        text = T(
-            lang,
-            "no_applications"
-        )
+        text = T(lang, "no_applications")
 
     else:
 
         text = "📋 МОИ ЗАЯВКИ\n\n"
+
+        status_names = {
+            "pending": "⏳ Ожидание",
+            "approved": "✅ Одобрено",
+            "rejected": "❌ Отклонено"
+        }
 
         for row in rows:
 
             text += (
                 f"🏆 {row['name']}\n"
                 f"🎮 {row['mode']}\n"
-                f"📌 {row['status']}\n\n"
+                f"📌 {status_names.get(row['status'], row['status'])}\n\n"
             )
 
     await callback.message.edit_text(
@@ -1738,8 +1875,7 @@ async def ranking_handler(callback: types.CallbackQuery):
     lang = get_language(callback.from_user.id)
 
     await callback.message.edit_text(
-        "📊 RANKING\n\n"
-        "Выбери рейтинг:",
+        "📊 RANKING\n\nВыбери рейтинг:",
         reply_markup=ranking_keyboard(lang)
     )
 
@@ -1753,11 +1889,7 @@ async def player_ranking(callback: types.CallbackQuery):
 
     rows = db.execute(
         """
-        SELECT
-            nickname,
-            rating,
-            wins,
-            losses
+        SELECT nickname, rating, wins, losses
         FROM users
         WHERE nickname != ''
         ORDER BY rating DESC, wins DESC
@@ -1767,28 +1899,19 @@ async def player_ranking(callback: types.CallbackQuery):
 
     if not rows:
 
-        text = T(
-            lang,
-            "ranking_empty"
-        )
+        text = T(lang, "ranking_empty")
 
     else:
 
         text = "🥇 PLAYER RANKING\n\n"
 
-        for index, row in enumerate(
-            rows,
-            1
-        ):
+        for index, row in enumerate(rows, 1):
 
             medal = {
                 1: "🥇",
                 2: "🥈",
                 3: "🥉"
-            }.get(
-                index,
-                f"{index}."
-            )
+            }.get(index, f"{index}.")
 
             text += (
                 f"{medal} {row['nickname']}"
@@ -1815,11 +1938,7 @@ async def team_ranking(callback: types.CallbackQuery):
 
     rows = db.execute(
         """
-        SELECT
-            name,
-            rating,
-            wins,
-            losses
+        SELECT name, rating, wins, losses
         FROM teams
         ORDER BY rating DESC, wins DESC
         LIMIT 20
@@ -1828,28 +1947,19 @@ async def team_ranking(callback: types.CallbackQuery):
 
     if not rows:
 
-        text = T(
-            lang,
-            "ranking_empty"
-        )
+        text = T(lang, "ranking_empty")
 
     else:
 
         text = "👥 TEAM RANKING\n\n"
 
-        for index, row in enumerate(
-            rows,
-            1
-        ):
+        for index, row in enumerate(rows, 1):
 
             medal = {
                 1: "🥇",
                 2: "🥈",
                 3: "🥉"
-            }.get(
-                index,
-                f"{index}."
-            )
+            }.get(index, f"{index}.")
 
             text += (
                 f"{medal} {row['name']}"
@@ -1893,7 +2003,6 @@ async def team_handler(callback: types.CallbackQuery):
 async def create_team(callback: types.CallbackQuery):
 
     user_id = callback.from_user.id
-
     lang = get_language(user_id)
 
     if not is_registered(user_id):
@@ -1917,16 +2026,13 @@ async def create_team(callback: types.CallbackQuery):
     if exists:
 
         await callback.answer(
-            "У тебя уже есть команда.",
+            "⚠️ У тебя уже есть команда.",
             show_alert=True
         )
 
         return
 
-    set_state(
-        user_id,
-        "team_name"
-    )
+    set_state(user_id, "team_name")
 
     await callback.message.edit_text(
         "👥 Введи название команды:"
@@ -1939,7 +2045,6 @@ async def create_team(callback: types.CallbackQuery):
 async def my_team(callback: types.CallbackQuery):
 
     user_id = callback.from_user.id
-
     lang = get_language(user_id)
 
     row = db.execute(
@@ -1964,7 +2069,6 @@ async def my_team(callback: types.CallbackQuery):
         )
 
         await callback.answer()
-
         return
 
     members = db.execute(
@@ -2019,9 +2123,7 @@ async def send_news(target, user_id):
 
     rows = db.execute(
         """
-        SELECT
-            title,
-            text
+        SELECT title, text
         FROM news
         ORDER BY id DESC
         LIMIT 10
@@ -2030,10 +2132,7 @@ async def send_news(target, user_id):
 
     if not rows:
 
-        text = T(
-            lang,
-            "no_news"
-        )
+        text = T(lang, "no_news")
 
     else:
 
@@ -2046,20 +2145,18 @@ async def send_news(target, user_id):
                 f"{row['text']}\n\n"
             )
 
-    keyboard = main_menu(lang)
-
     if isinstance(target, types.CallbackQuery):
 
         await target.message.edit_text(
             text,
-            reply_markup=keyboard
+            reply_markup=main_menu(lang)
         )
 
     else:
 
         await target.answer(
             text,
-            reply_markup=keyboard
+            reply_markup=main_menu(lang)
         )
 
 
@@ -2151,26 +2248,31 @@ async def text_handler(message: types.Message):
     ensure_user(message.from_user)
 
     user_id = message.from_user.id
-
     lang = get_language(user_id)
-
     text = message.text.strip()
 
-    step, temp_nickname, temp_player_id = get_state(
-        user_id
-    )
+    step, temp_nickname, temp_player_id = get_state(user_id)
 
     # --------------------------------------------------------
-    # REGISTRATION — NICKNAME
+    # NICKNAME
     # --------------------------------------------------------
 
     if step == "nickname":
 
+        if not registration_enabled():
+
+            reset_state(user_id)
+
+            await message.answer(
+                T(lang, "registration_closed")
+            )
+
+            return
+
         if len(text) < 2 or len(text) > 30:
 
             await message.answer(
-                "❌ Ник должен содержать "
-                "от 2 до 30 символов."
+                "❌ Ник должен содержать от 2 до 30 символов."
             )
 
             return
@@ -2188,7 +2290,7 @@ async def text_handler(message: types.Message):
         return
 
     # --------------------------------------------------------
-    # REGISTRATION — PLAYER ID
+    # PLAYER ID
     # --------------------------------------------------------
 
     if step == "player_id":
@@ -2215,7 +2317,7 @@ async def text_handler(message: types.Message):
         return
 
     # --------------------------------------------------------
-    # REGISTRATION — COUNTRY
+    # COUNTRY
     # --------------------------------------------------------
 
     if step == "country":
@@ -2224,6 +2326,16 @@ async def text_handler(message: types.Message):
 
             await message.answer(
                 "❌ Введи название страны."
+            )
+
+            return
+
+        if not registration_enabled():
+
+            reset_state(user_id)
+
+            await message.answer(
+                T(lang, "registration_closed")
             )
 
             return
@@ -2273,8 +2385,7 @@ async def text_handler(message: types.Message):
         if len(text) < 3 or len(text) > 30:
 
             await message.answer(
-                "❌ Название команды должно "
-                "быть от 3 до 30 символов."
+                "❌ Название команды должно быть от 3 до 30 символов."
             )
 
             return
@@ -2336,47 +2447,72 @@ async def text_handler(message: types.Message):
 
 
 # ============================================================
-# ADMIN
+# ADMIN COMMAND
 # ============================================================
 
 @dp.message(Command("admin"))
 async def admin_command(message: types.Message):
 
+    ensure_user(message.from_user)
+
     if not is_admin(message.from_user.id):
 
-        lang = get_language(
-            message.from_user.id
-        )
-
         await message.answer(
-            T(lang, "admin_only")
+            T(
+                get_language(message.from_user.id),
+                "admin_only"
+            )
         )
 
         return
 
-    await message.answer(
-        "🛡️ BRAWL STARS ARENA — ADMIN\n\n"
+    await show_admin_panel(message)
 
-        "/users — статистика\n"
-        "/requests — заявки\n"
-        "/newtournament — создать турнир\n"
-        "/newnews — создать новость\n"
-        "/close ID — закрыть турнир\n"
-        "/approve ID — одобрить заявку\n"
-        "/reject ID — отклонить заявку\n\n"
 
-        "Создание турнира:\n"
-        "/newtournament Название | 1v1 | Приз | Описание | Лимит\n\n"
+# ============================================================
+# ADMIN CALLBACK SECURITY
+# ============================================================
 
-        "Пример:\n"
-        "/newtournament Night Cup | 1v1 | $50 | Weekly Arena | 32"
+async def admin_check(callback):
+
+    if not is_admin(callback.from_user.id):
+
+        await callback.answer(
+            "🛡️ Только для администрации.",
+            show_alert=True
+        )
+
+        return False
+
+    return True
+
+
+# ============================================================
+# ADMIN — MAIN
+# ============================================================
+
+@dp.callback_query(lambda c: c.data == "admin_panel")
+async def admin_panel_callback(callback: types.CallbackQuery):
+
+    if not await admin_check(callback):
+        return
+
+    await show_admin_panel(
+        callback.message,
+        edit=True
     )
 
+    await callback.answer()
 
-@dp.message(Command("users"))
-async def admin_users(message: types.Message):
 
-    if not is_admin(message.from_user.id):
+# ============================================================
+# ADMIN — STATISTICS
+# ============================================================
+
+@dp.callback_query(lambda c: c.data == "admin_stats")
+async def admin_stats(callback: types.CallbackQuery):
+
+    if not await admin_check(callback):
         return
 
     users = db.execute(
@@ -2399,19 +2535,254 @@ async def admin_users(message: types.Message):
         "SELECT COUNT(*) AS c FROM tournaments"
     ).fetchone()["c"]
 
-    await message.answer(
-        "📊 ARENA STATS\n\n"
-        f"👤 Users: {users}\n"
-        f"🎮 Registered: {registered}\n"
-        f"👥 Teams: {teams}\n"
-        f"🏆 Tournaments: {tournaments}"
+    open_tournaments = db.execute(
+        """
+        SELECT COUNT(*) AS c
+        FROM tournaments
+        WHERE status = 'open'
+        """
+    ).fetchone()["c"]
+
+    applications = db.execute(
+        """
+        SELECT COUNT(*) AS c
+        FROM registrations
+        """
+    ).fetchone()["c"]
+
+    pending = db.execute(
+        """
+        SELECT COUNT(*) AS c
+        FROM registrations
+        WHERE status = 'pending'
+        """
+    ).fetchone()["c"]
+
+    text = (
+        "📊 ARENA STATISTICS\n\n"
+        f"👤 Пользователей: {users}\n"
+        f"🎮 Зарегистрировано: {registered}\n"
+        f"👥 Команд: {teams}\n\n"
+        f"🏆 Турниров: {tournaments}\n"
+        f"🔥 Открыто: {open_tournaments}\n\n"
+        f"📋 Заявок: {applications}\n"
+        f"⏳ Ожидают: {pending}"
+    )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🔄 Обновить",
+                        callback_data="admin_stats"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="⬅️ Админ-панель",
+                        callback_data="admin_panel"
+                    )
+                ]
+            ]
+        )
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# ADMIN — USERS
+# ============================================================
+
+@dp.callback_query(lambda c: c.data == "admin_users")
+async def admin_users_callback(callback: types.CallbackQuery):
+
+    if not await admin_check(callback):
+        return
+
+    rows = db.execute(
+        """
+        SELECT
+            telegram_id,
+            username,
+            nickname,
+            rating
+        FROM users
+        ORDER BY telegram_id DESC
+        LIMIT 20
+        """
+    ).fetchall()
+
+    text = "👥 ПОСЛЕДНИЕ ПОЛЬЗОВАТЕЛИ\n\n"
+
+    if not rows:
+
+        text += "Пользователей пока нет."
+
+    else:
+
+        for row in rows:
+
+            nickname = row["nickname"] or "Без профиля"
+            username = (
+                f"@{row['username']}"
+                if row["username"]
+                else "без username"
+            )
+
+            text += (
+                f"👤 {nickname}\n"
+                f"🔗 {username}\n"
+                f"⭐ {row['rating']}\n"
+                f"🆔 {row['telegram_id']}\n\n"
+            )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="⬅️ Админ-панель",
+                        callback_data="admin_panel"
+                    )
+                ]
+            ]
+        )
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# ADMIN — TOGGLE REGISTRATION
+# ============================================================
+
+@dp.callback_query(lambda c: c.data == "admin_toggle_registration")
+async def admin_toggle_registration(callback: types.CallbackQuery):
+
+    if not await admin_check(callback):
+        return
+
+    current = registration_enabled()
+
+    set_setting(
+        "registration_enabled",
+        "0" if current else "1"
+    )
+
+    status = "🟢 включена" if not current else "🔴 выключена"
+
+    await callback.answer(
+        f"Регистрация {status}",
+        show_alert=True
+    )
+
+    await show_admin_panel(
+        callback.message,
+        edit=True
     )
 
 
-@dp.message(Command("requests"))
-async def admin_requests(message: types.Message):
+# ============================================================
+# ADMIN — TOGGLE TOURNAMENT REGISTRATION
+# ============================================================
 
-    if not is_admin(message.from_user.id):
+@dp.callback_query(
+    lambda c:
+        c.data == "admin_toggle_tournament_registration"
+)
+async def admin_toggle_tournament_registration(
+    callback: types.CallbackQuery
+):
+
+    if not await admin_check(callback):
+        return
+
+    current = tournament_registration_enabled()
+
+    set_setting(
+        "tournament_registration_enabled",
+        "0" if current else "1"
+    )
+
+    status = (
+        "🟢 включена"
+        if not current
+        else
+        "🔴 выключена"
+    )
+
+    await callback.answer(
+        f"Подача заявок {status}",
+        show_alert=True
+    )
+
+    await show_admin_panel(
+        callback.message,
+        edit=True
+    )
+
+
+# ============================================================
+# ADMIN — REQUESTS
+# ============================================================
+
+def admin_requests_keyboard():
+
+    rows = db.execute(
+        """
+        SELECT
+            registrations.id,
+            users.nickname,
+            tournaments.name,
+            registrations.status
+        FROM registrations
+        JOIN users
+        ON users.telegram_id =
+            registrations.telegram_id
+        JOIN tournaments
+        ON tournaments.id =
+            registrations.tournament_id
+        WHERE registrations.status = 'pending'
+        ORDER BY registrations.id ASC
+        LIMIT 20
+        """
+    ).fetchall()
+
+    buttons = []
+
+    for row in rows:
+
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=f"⏳ #{row['id']} {row['nickname']}",
+                    callback_data=f"admin_req_{row['id']}"
+                )
+            ]
+        )
+
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ Админ-панель",
+                callback_data="admin_panel"
+            )
+        ]
+    )
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=buttons
+    )
+
+
+@dp.callback_query(lambda c: c.data == "admin_requests")
+async def admin_requests_callback(callback: types.CallbackQuery):
+
+    if not await admin_check(callback):
         return
 
     rows = db.execute(
@@ -2423,179 +2794,1341 @@ async def admin_requests(message: types.Message):
             registrations.status
         FROM registrations
         JOIN users
-        ON users.telegram_id = registrations.telegram_id
+        ON users.telegram_id =
+            registrations.telegram_id
         JOIN tournaments
-        ON tournaments.id = registrations.tournament_id
-        ORDER BY registrations.id DESC
-        LIMIT 50
+        ON tournaments.id =
+            registrations.tournament_id
+        WHERE registrations.status = 'pending'
+        ORDER BY registrations.id ASC
+        LIMIT 20
         """
     ).fetchall()
 
     if not rows:
 
-        await message.answer(
-            "📋 Заявок пока нет."
+        text = (
+            "📋 ЗАЯВКИ\n\n"
+            "✅ Нет заявок, ожидающих проверки."
+        )
+
+    else:
+
+        text = (
+            "📋 ЗАЯВКИ\n\n"
+            f"⏳ Ожидают проверки: {len(rows)}\n\n"
+            "Выбери заявку:"
+        )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=admin_requests_keyboard()
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# ADMIN — REQUEST DETAILS
+# ============================================================
+
+@dp.callback_query(
+    lambda c:
+        c.data.startswith("admin_req_")
+        and c.data[10:].isdigit()
+)
+async def admin_request_details(
+    callback: types.CallbackQuery
+):
+
+    if not await admin_check(callback):
+        return
+
+    request_id = int(
+        callback.data[10:]
+    )
+
+    row = db.execute(
+        """
+        SELECT
+            registrations.id,
+            registrations.telegram_id,
+            registrations.status,
+            registrations.created_at,
+
+            users.nickname,
+            users.player_id,
+            users.country,
+            users.rating,
+            users.wins,
+            users.losses,
+
+            tournaments.name,
+            tournaments.mode,
+            tournaments.prize
+
+        FROM registrations
+
+        JOIN users
+        ON users.telegram_id =
+            registrations.telegram_id
+
+        JOIN tournaments
+        ON tournaments.id =
+            registrations.tournament_id
+
+        WHERE registrations.id = ?
+        """,
+        (request_id,)
+    ).fetchone()
+
+    if not row:
+
+        await callback.answer(
+            "❌ Заявка не найдена.",
+            show_alert=True
         )
 
         return
 
-    result = "📋 REQUESTS\n\n"
+    status = {
+        "pending": "⏳ Ожидает",
+        "approved": "✅ Одобрена",
+        "rejected": "❌ Отклонена"
+    }.get(
+        row["status"],
+        row["status"]
+    )
 
-    for row in rows:
+    text = (
+        "📋 ЗАЯВКА\n\n"
+        f"🆔 Заявка: #{row['id']}\n"
+        f"📌 Статус: {status}\n\n"
 
-        result += (
-            f"#{row['id']} "
-            f"{row['nickname']}\n"
-            f"🏆 {row['name']}\n"
-            f"📌 {row['status']}\n\n"
+        f"👤 Ник: {row['nickname']}\n"
+        f"🆔 Player ID: {row['player_id']}\n"
+        f"🌎 Страна: {row['country']}\n"
+        f"⭐ Рейтинг: {row['rating']}\n"
+        f"🏆 Победы: {row['wins']}\n"
+        f"❌ Поражения: {row['losses']}\n\n"
+
+        f"🏆 Турнир: {row['name']}\n"
+        f"🎮 Формат: {row['mode']}\n"
+        f"🎁 Приз: {row['prize'] or '—'}"
+    )
+
+    buttons = []
+
+    if row["status"] == "pending":
+
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="✅ Одобрить",
+                    callback_data=f"admin_approve_{row['id']}"
+                ),
+                InlineKeyboardButton(
+                    text="❌ Отклонить",
+                    callback_data=f"admin_reject_{row['id']}"
+                )
+            ]
         )
 
-    await message.answer(
-        result
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ К заявкам",
+                callback_data="admin_requests"
+            )
+        ]
+    )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=buttons
+        )
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# ADMIN — APPROVE
+# ============================================================
+
+@dp.callback_query(
+    lambda c:
+        c.data.startswith("admin_approve_")
+        and c.data[14:].isdigit()
+)
+async def admin_approve(callback: types.CallbackQuery):
+
+    if not await admin_check(callback):
+        return
+
+    request_id = int(
+        callback.data[14:]
+    )
+
+    row = db.execute(
+        """
+        SELECT
+            telegram_id,
+            tournament_id
+        FROM registrations
+        WHERE id = ?
+        """,
+        (request_id,)
+    ).fetchone()
+
+    if not row:
+
+        await callback.answer(
+            "❌ Заявка не найдена.",
+            show_alert=True
+        )
+
+        return
+
+    cursor = db.execute(
+        """
+        UPDATE registrations
+        SET status = 'approved'
+        WHERE id = ?
+        AND status = 'pending'
+        """,
+        (request_id,)
+    )
+
+    db.commit()
+
+    if cursor.rowcount == 0:
+
+        await callback.answer(
+            "⚠️ Заявка уже обработана.",
+            show_alert=True
+        )
+
+        return
+
+    await callback.answer(
+        "✅ Заявка одобрена!",
+        show_alert=True
+    )
+
+    # Уведомляем игрока
+    try:
+
+        tournament = db.execute(
+            """
+            SELECT name, mode
+            FROM tournaments
+            WHERE id = ?
+            """,
+            (row["tournament_id"],)
+        ).fetchone()
+
+        await bot.send_message(
+            row["telegram_id"],
+            "🎉 ЗАЯВКА ОДОБРЕНА!\n\n"
+            f"🏆 {tournament['name']}\n"
+            f"🎮 Формат: {tournament['mode']}\n\n"
+            "🔥 Удачи на арене!"
+        )
+
+    except Exception as e:
+
+        print(
+            f"Notification error: {e}"
+        )
+
+    await callback.message.edit_text(
+        "✅ Заявка одобрена!",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="⬅️ К заявкам",
+                        callback_data="admin_requests"
+                    )
+                ]
+            ]
+        )
     )
 
 
-@dp.message(Command("newtournament"))
-async def new_tournament(message: types.Message):
+# ============================================================
+# ADMIN — REJECT
+# ============================================================
 
-    if not is_admin(message.from_user.id):
+@dp.callback_query(
+    lambda c:
+        c.data.startswith("admin_reject_")
+        and c.data[13:].isdigit()
+)
+async def admin_reject(callback: types.CallbackQuery):
+
+    if not await admin_check(callback):
         return
 
-    raw = message.text.partition(" ")[2].strip()
+    request_id = int(
+        callback.data[13:]
+    )
 
-    parts = [
-        x.strip()
-        for x in raw.split("|")
-    ]
+    row = db.execute(
+        """
+        SELECT
+            telegram_id,
+            tournament_id
+        FROM registrations
+        WHERE id = ?
+        """,
+        (request_id,)
+    ).fetchone()
 
-    if len(parts) < 5:
+    if not row:
 
-        await message.answer(
-            "❌ Формат:\n\n"
-            "/newtournament "
-            "Название | 1v1 | Приз | "
-            "Описание | Лимит"
+        await callback.answer(
+            "❌ Заявка не найдена.",
+            show_alert=True
         )
 
         return
 
-    name = parts[0]
-    mode = parts[1].lower()
-    prize = parts[2]
-    description = parts[3]
-    limit_raw = parts[4]
+    cursor = db.execute(
+        """
+        UPDATE registrations
+        SET status = 'rejected'
+        WHERE id = ?
+        AND status = 'pending'
+        """,
+        (request_id,)
+    )
 
-    if mode not in ("1v1", "3v3"):
+    db.commit()
 
-        await message.answer(
-            "❌ Формат должен быть 1v1 или 3v3."
+    if cursor.rowcount == 0:
+
+        await callback.answer(
+            "⚠️ Заявка уже обработана.",
+            show_alert=True
         )
 
         return
+
+    await callback.answer(
+        "❌ Заявка отклонена.",
+        show_alert=True
+    )
 
     try:
 
-        max_players = int(
-            limit_raw
+        tournament = db.execute(
+            """
+            SELECT name
+            FROM tournaments
+            WHERE id = ?
+            """,
+            (row["tournament_id"],)
+        ).fetchone()
+
+        await bot.send_message(
+            row["telegram_id"],
+            "❌ ЗАЯВКА ОТКЛОНЕНА\n\n"
+            f"🏆 {tournament['name']}\n\n"
+            "Если ты считаешь это ошибкой — "
+            "обратись к администрации."
         )
 
-        if max_players < 0:
-            raise ValueError
+    except Exception as e:
 
-    except ValueError:
-
-        await message.answer(
-            "❌ Лимит должен быть числом."
+        print(
+            f"Notification error: {e}"
         )
 
+    await callback.message.edit_text(
+        "❌ Заявка отклонена.",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="⬅️ К заявкам",
+                        callback_data="admin_requests"
+                    )
+                ]
+            ]
+        )
+    )
+
+
+# ============================================================
+# ADMIN — TOURNAMENTS
+# ============================================================
+
+@dp.callback_query(lambda c: c.data == "admin_tournaments")
+async def admin_tournaments(callback: types.CallbackQuery):
+
+    if not await admin_check(callback):
         return
 
-    db.execute(
+    rows = db.execute(
         """
-        INSERT INTO tournaments
-        (
+        SELECT
+            id,
+            name,
+            mode,
+            prize,
+            status,
+            max_players
+        FROM tournaments
+        ORDER BY id DESC
+        LIMIT 30
+        """
+    ).fetchall()
+
+    text = "🏆 УПРАВЛЕНИЕ ТУРНИРАМИ\n\n"
+
+    buttons = []
+
+    if not rows:
+
+        text += "Турниров пока нет."
+
+    else:
+
+        for row in rows:
+
+            status = (
+                "🟢 ОТКРЫТ"
+                if row["status"] == "open"
+                else
+                "🔴 ЗАКРЫТ"
+            )
+
+            text += (
+                f"#{row['id']} — {row['name']}\n"
+                f"🎮 {row['mode']} | "
+                f"{status}\n"
+                f"🎁 {row['prize'] or '—'}\n\n"
+            )
+
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        text=f"⚙️ #{row['id']} {row['name']}",
+                        callback_data=f"admin_tour_{row['id']}"
+                    )
+                ]
+            )
+
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="➕ Создать турнир",
+                callback_data="admin_create_tournament"
+            )
+        ]
+    )
+
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ Админ-панель",
+                callback_data="admin_panel"
+            )
+        ]
+    )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=buttons
+        )
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# ADMIN — TOURNAMENT DETAILS
+# ============================================================
+
+@dp.callback_query(
+    lambda c:
+        c.data.startswith("admin_tour_")
+        and c.data[11:].isdigit()
+)
+async def admin_tournament_details(
+    callback: types.CallbackQuery
+):
+
+    if not await admin_check(callback):
+        return
+
+    tournament_id = int(
+        callback.data[11:]
+    )
+
+    row = db.execute(
+        """
+        SELECT
+            id,
             name,
             mode,
             prize,
             description,
             status,
-            max_players,
-            created_at
-        )
-        VALUES (?, ?, ?, ?, 'open', ?, ?)
+            max_players
+        FROM tournaments
+        WHERE id = ?
         """,
-        (
-            name,
-            mode,
-            prize,
-            description,
-            max_players,
-            datetime.utcnow().isoformat()
+        (tournament_id,)
+    ).fetchone()
+
+    if not row:
+
+        await callback.answer(
+            "❌ Турнир не найден.",
+            show_alert=True
         )
+
+        return
+
+    count = db.execute(
+        """
+        SELECT COUNT(*) AS c
+        FROM registrations
+        WHERE tournament_id = ?
+        AND status != 'rejected'
+        """,
+        (tournament_id,)
+    ).fetchone()["c"]
+
+    status = (
+        "🟢 ОТКРЫТ"
+        if row["status"] == "open"
+        else
+        "🔴 ЗАКРЫТ"
+    )
+
+    text = (
+        "🏆 ТУРНИР\n\n"
+        f"🆔 #{row['id']}\n"
+        f"🏆 {row['name']}\n"
+        f"🎮 Формат: {row['mode']}\n"
+        f"🎁 Приз: {row['prize'] or '—'}\n"
+        f"ℹ️ {row['description'] or '—'}\n\n"
+        f"👥 Участников: {count}/"
+        f"{row['max_players'] or '∞'}\n"
+        f"📌 Статус: {status}"
+    )
+
+    buttons = []
+
+    if row["status"] == "open":
+
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="🔴 Закрыть турнир",
+                    callback_data=f"admin_close_tour_{row['id']}"
+                )
+            ]
+        )
+
+    else:
+
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="🟢 Открыть турнир",
+                    callback_data=f"admin_open_tour_{row['id']}"
+                )
+            ]
+        )
+
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="📋 Заявки",
+                callback_data=f"admin_tour_requests_{row['id']}"
+            )
+        ]
+    )
+
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ Турниры",
+                callback_data="admin_tournaments"
+            )
+        ]
+    )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=buttons
+        )
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# ADMIN — CLOSE TOURNAMENT
+# ============================================================
+
+@dp.callback_query(
+    lambda c:
+        c.data.startswith("admin_close_tour_")
+        and c.data[17:].isdigit()
+)
+async def admin_close_tournament(callback: types.CallbackQuery):
+
+    if not await admin_check(callback):
+        return
+
+    tournament_id = int(
+        callback.data[17:]
+    )
+
+    db.execute(
+        """
+        UPDATE tournaments
+        SET status = 'closed'
+        WHERE id = ?
+        """,
+        (tournament_id,)
     )
 
     db.commit()
 
-    await message.answer(
-        "✅ ТУРНИР СОЗДАН!\n\n"
-        f"🏆 {name}\n"
-        f"🎮 {mode}\n"
-        f"🎁 {prize}\n"
-        f"👤 Лимит: "
-        f"{max_players or '∞'}"
+    await callback.answer(
+        "🔴 Турнир закрыт.",
+        show_alert=True
     )
 
+    callback.data = f"admin_tour_{tournament_id}"
 
-@dp.message(Command("newnews"))
-async def new_news(message: types.Message):
+    await admin_tournament_details(callback)
+
+
+# ============================================================
+# ADMIN — OPEN TOURNAMENT
+# ============================================================
+
+@dp.callback_query(
+    lambda c:
+        c.data.startswith("admin_open_tour_")
+        and c.data[16:].isdigit()
+)
+async def admin_open_tournament(callback: types.CallbackQuery):
+
+    if not await admin_check(callback):
+        return
+
+    tournament_id = int(
+        callback.data[16:]
+    )
+
+    db.execute(
+        """
+        UPDATE tournaments
+        SET status = 'open'
+        WHERE id = ?
+        """,
+        (tournament_id,)
+    )
+
+    db.commit()
+
+    await callback.answer(
+        "🟢 Турнир открыт.",
+        show_alert=True
+    )
+
+    callback.data = f"admin_tour_{tournament_id}"
+
+    await admin_tournament_details(callback)
+
+
+# ============================================================
+# ADMIN — TOURNAMENT REQUESTS
+# ============================================================
+
+@dp.callback_query(
+    lambda c:
+        c.data.startswith("admin_tour_requests_")
+        and c.data[21:].isdigit()
+)
+async def admin_tournament_requests(
+    callback: types.CallbackQuery
+):
+
+    if not await admin_check(callback):
+        return
+
+    tournament_id = int(
+        callback.data[21:]
+    )
+
+    rows = db.execute(
+        """
+        SELECT
+            registrations.id,
+            users.nickname,
+            users.rating,
+            registrations.status
+        FROM registrations
+        JOIN users
+        ON users.telegram_id =
+            registrations.telegram_id
+        WHERE registrations.tournament_id = ?
+        ORDER BY registrations.id ASC
+        """,
+        (tournament_id,)
+    ).fetchall()
+
+    if not rows:
+
+        text = "📋 Участников пока нет."
+
+    else:
+
+        text = "📋 ЗАЯВКИ ТУРНИРА\n\n"
+
+        for row in rows:
+
+            status = {
+                "pending": "⏳",
+                "approved": "✅",
+                "rejected": "❌"
+            }.get(
+                row["status"],
+                "❔"
+            )
+
+            text += (
+                f"{status} #{row['id']} "
+                f"{row['nickname']}\n"
+                f"⭐ {row['rating']}\n\n"
+            )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="⬅️ Турнир",
+                        callback_data=f"admin_tour_{tournament_id}"
+                    )
+                ]
+            ]
+        )
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# ADMIN — CREATE TOURNAMENT
+# ============================================================
+
+@dp.callback_query(
+    lambda c:
+        c.data == "admin_create_tournament"
+)
+async def admin_create_tournament(
+    callback: types.CallbackQuery
+):
+
+    if not await admin_check(callback):
+        return
+
+    set_state(
+        callback.from_user.id,
+        "admin_new_tournament"
+    )
+
+    await callback.message.edit_text(
+        "➕ СОЗДАНИЕ ТУРНИРА\n\n"
+        "Отправь одной строкой:\n\n"
+        "Название | 1v1 | Приз | Описание | Лимит\n\n"
+        "Пример:\n"
+        "Night Cup | 1v1 | $50 | Weekly Arena | 32\n\n"
+        "Для безлимитного турнира укажи 0."
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# ADMIN — NEWS MENU
+# ============================================================
+
+@dp.callback_query(lambda c: c.data == "admin_news")
+async def admin_news(callback: types.CallbackQuery):
+
+    if not await admin_check(callback):
+        return
+
+    rows = db.execute(
+        """
+        SELECT id, title
+        FROM news
+        ORDER BY id DESC
+        LIMIT 10
+        """
+    ).fetchall()
+
+    text = "📰 УПРАВЛЕНИЕ НОВОСТЯМИ\n\n"
+
+    if not rows:
+
+        text += "Новостей пока нет."
+
+    else:
+
+        for row in rows:
+            text += (
+                f"#{row['id']} — "
+                f"{row['title']}\n"
+            )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="➕ Создать новость",
+                        callback_data="admin_create_news"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="⬅️ Админ-панель",
+                        callback_data="admin_panel"
+                    )
+                ]
+            ]
+        )
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# ADMIN — CREATE NEWS
+# ============================================================
+
+@dp.callback_query(lambda c: c.data == "admin_create_news")
+async def admin_create_news(callback: types.CallbackQuery):
+
+    if not await admin_check(callback):
+        return
+
+    set_state(
+        callback.from_user.id,
+        "admin_new_news"
+    )
+
+    await callback.message.edit_text(
+        "📰 СОЗДАНИЕ НОВОСТИ\n\n"
+        "Отправь:\n\n"
+        "Заголовок | Текст новости\n\n"
+        "Пример:\n"
+        "Night Cup #1 | Регистрация открыта!"
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# ADMIN — BROADCAST
+# ============================================================
+
+@dp.callback_query(lambda c: c.data == "admin_broadcast")
+async def admin_broadcast(callback: types.CallbackQuery):
+
+    if not await admin_check(callback):
+        return
+
+    set_state(
+        callback.from_user.id,
+        "admin_broadcast"
+    )
+
+    await callback.message.edit_text(
+        "📢 РАССЫЛКА\n\n"
+        "Отправь сообщение, которое нужно "
+        "разослать всем пользователям.\n\n"
+        "⚠️ Используй эту функцию аккуратно."
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# ADMIN TEXT INPUT
+# ============================================================
+
+async def handle_admin_text(message):
+
+    if not is_admin(message.from_user.id):
+        return False
+
+    user_id = message.from_user.id
+
+    step, temp_nickname, temp_player_id = get_state(
+        user_id
+    )
+
+    text = message.text.strip()
+
+    # --------------------------------------------------------
+    # CREATE TOURNAMENT
+    # --------------------------------------------------------
+
+    if step == "admin_new_tournament":
+
+        parts = [
+            x.strip()
+            for x in text.split("|")
+        ]
+
+        if len(parts) < 5:
+
+            await message.answer(
+                "❌ Неверный формат.\n\n"
+                "Название | 1v1 | Приз | Описание | Лимит"
+            )
+
+            return True
+
+        name = parts[0]
+        mode = parts[1].lower()
+        prize = parts[2]
+        description = parts[3]
+
+        try:
+
+            max_players = int(parts[4])
+
+            if max_players < 0:
+                raise ValueError
+
+        except ValueError:
+
+            await message.answer(
+                "❌ Лимит должен быть числом."
+            )
+
+            return True
+
+        if mode not in ("1v1", "3v3"):
+
+            await message.answer(
+                "❌ Формат должен быть 1v1 или 3v3."
+            )
+
+            return True
+
+        db.execute(
+            """
+            INSERT INTO tournaments
+            (
+                name,
+                mode,
+                prize,
+                description,
+                status,
+                max_players,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, 'open', ?, ?)
+            """,
+            (
+                name,
+                mode,
+                prize,
+                description,
+                max_players,
+                datetime.utcnow().isoformat()
+            )
+        )
+
+        db.commit()
+
+        reset_state(user_id)
+
+        await message.answer(
+            "✅ ТУРНИР СОЗДАН!\n\n"
+            f"🏆 {name}\n"
+            f"🎮 {mode}\n"
+            f"🎁 {prize}\n"
+            f"👤 Лимит: "
+            f"{max_players or '∞'}",
+            reply_markup=admin_keyboard()
+        )
+
+        return True
+
+    # --------------------------------------------------------
+    # CREATE NEWS
+    # --------------------------------------------------------
+
+    if step == "admin_new_news":
+
+        parts = [
+            x.strip()
+            for x in text.split("|", 1)
+        ]
+
+        if len(parts) != 2:
+
+            await message.answer(
+                "❌ Формат:\n"
+                "Заголовок | Текст новости"
+            )
+
+            return True
+
+        title, news_text = parts
+
+        db.execute(
+            """
+            INSERT INTO news
+            (
+                title,
+                text,
+                created_at
+            )
+            VALUES (?, ?, ?)
+            """,
+            (
+                title,
+                news_text,
+                datetime.utcnow().isoformat()
+            )
+        )
+
+        db.commit()
+
+        reset_state(user_id)
+
+        await message.answer(
+            "📰 Новость опубликована!",
+            reply_markup=admin_keyboard()
+        )
+
+        return True
+
+    # --------------------------------------------------------
+    # BROADCAST
+    # --------------------------------------------------------
+
+    if step == "admin_broadcast":
+
+        reset_state(user_id)
+
+        users = db.execute(
+            """
+            SELECT telegram_id
+            FROM users
+            """
+        ).fetchall()
+
+        sent = 0
+        failed = 0
+
+        await message.answer(
+            "📢 Начинаю рассылку..."
+        )
+
+        for row in users:
+
+            try:
+
+                await bot.send_message(
+                    row["telegram_id"],
+                    "📢 BRAWL STARS ARENA\n\n"
+                    + text
+                )
+
+                sent += 1
+
+                await asyncio.sleep(0.05)
+
+            except Exception:
+
+                failed += 1
+
+        await message.answer(
+            "📢 РАССЫЛКА ЗАВЕРШЕНА\n\n"
+            f"✅ Отправлено: {sent}\n"
+            f"❌ Ошибок: {failed}",
+            reply_markup=admin_keyboard()
+        )
+
+        return True
+
+    return False
+
+
+# ============================================================
+# TEXT INPUT — ADMIN FIRST
+# ============================================================
+
+@dp.message()
+async def final_text_handler(message: types.Message):
+
+    if not message.text:
+        return
+
+    ensure_user(message.from_user)
+
+    if is_admin(message.from_user.id):
+
+        handled = await handle_admin_text(
+            message
+        )
+
+        if handled:
+            return
+
+    user_id = message.from_user.id
+    lang = get_language(user_id)
+    text = message.text.strip()
+
+    step, temp_nickname, temp_player_id = get_state(
+        user_id
+    )
+
+    # --------------------------------------------------------
+    # REGISTRATION NICKNAME
+    # --------------------------------------------------------
+
+    if step == "nickname":
+
+        if not registration_enabled():
+
+            reset_state(user_id)
+
+            await message.answer(
+                T(lang, "registration_closed")
+            )
+
+            return
+
+        if len(text) < 2 or len(text) > 30:
+
+            await message.answer(
+                "❌ Ник должен содержать от 2 до 30 символов."
+            )
+
+            return
+
+        set_state(
+            user_id,
+            "player_id",
+            nickname=text
+        )
+
+        await message.answer(
+            T(lang, "ask_player_id")
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # PLAYER ID
+    # --------------------------------------------------------
+
+    if step == "player_id":
+
+        if len(text) < 2 or len(text) > 40:
+
+            await message.answer(
+                "❌ Проверь Player ID."
+            )
+
+            return
+
+        set_state(
+            user_id,
+            "country",
+            nickname=temp_nickname,
+            player_id=text
+        )
+
+        await message.answer(
+            T(lang, "ask_country")
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # COUNTRY
+    # --------------------------------------------------------
+
+    if step == "country":
+
+        if not registration_enabled():
+
+            reset_state(user_id)
+
+            await message.answer(
+                T(lang, "registration_closed")
+            )
+
+            return
+
+        if len(text) < 2 or len(text) > 40:
+
+            await message.answer(
+                "❌ Введи название страны."
+            )
+
+            return
+
+        db.execute(
+            """
+            UPDATE users
+            SET
+                nickname = ?,
+                player_id = ?,
+                country = ?,
+                rating = 1000,
+                wins = 0,
+                losses = 0,
+                streak = 0,
+                best_streak = 0,
+                level = 1,
+                xp = 0,
+                reg_step = '',
+                temp_nickname = '',
+                temp_player_id = ''
+            WHERE telegram_id = ?
+            """,
+            (
+                temp_nickname,
+                temp_player_id,
+                text,
+                user_id
+            )
+        )
+
+        db.commit()
+
+        await message.answer(
+            T(lang, "registration_done"),
+            reply_markup=main_menu(lang)
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # TEAM NAME
+    # --------------------------------------------------------
+
+    if step == "team_name":
+
+        if len(text) < 3 or len(text) > 30:
+
+            await message.answer(
+                "❌ Название команды должно быть от 3 до 30 символов."
+            )
+
+            return
+
+        try:
+
+            cursor = db.execute(
+                """
+                INSERT INTO teams
+                (
+                    name,
+                    captain_id,
+                    rating,
+                    created_at
+                )
+                VALUES (?, ?, 1000, ?)
+                """,
+                (
+                    text,
+                    user_id,
+                    datetime.utcnow().isoformat()
+                )
+            )
+
+            team_id = cursor.lastrowid
+
+            db.execute(
+                """
+                INSERT INTO team_members
+                (
+                    team_id,
+                    telegram_id
+                )
+                VALUES (?, ?)
+                """,
+                (
+                    team_id,
+                    user_id
+                )
+            )
+
+            db.commit()
+
+            reset_state(user_id)
+
+            await message.answer(
+                f"👥 {text}\n\n"
+                f"{T(lang, 'team_created')}",
+                reply_markup=main_menu(lang)
+            )
+
+        except sqlite3.IntegrityError:
+
+            await message.answer(
+                "❌ Такое название команды уже занято."
+            )
+
+        return
+
+
+# ============================================================
+# OLD COMMAND COMPATIBILITY
+# ============================================================
+
+@dp.message(Command("users"))
+async def users_command(message: types.Message):
 
     if not is_admin(message.from_user.id):
         return
 
-    raw = message.text.partition(" ")[2].strip()
-
-    parts = [
-        x.strip()
-        for x in raw.split("|", 1)
-    ]
-
-    if len(parts) != 2:
-
-        await message.answer(
-            "❌ Формат:\n"
-            "/newnews Заголовок | Текст новости"
-        )
-
-        return
-
-    title, text = parts
-
-    db.execute(
-        """
-        INSERT INTO news
-        (
-            title,
-            text,
-            created_at
-        )
-        VALUES (?, ?, ?)
-        """,
-        (
-            title,
-            text,
-            datetime.utcnow().isoformat()
-        )
+    await message.answer(
+        "📊 Используй /admin → 📊 Статистика"
     )
 
-    db.commit()
+
+@dp.message(Command("requests"))
+async def requests_command(message: types.Message):
+
+    if not is_admin(message.from_user.id):
+        return
 
     await message.answer(
-        "📰 Новость опубликована."
+        "📋 Используй /admin → 📋 Заявки"
     )
 
 
 @dp.message(Command("close"))
-async def close_tournament(message: types.Message):
+async def close_command(message: types.Message):
 
     if not is_admin(message.from_user.id):
         return
@@ -2605,8 +4138,7 @@ async def close_tournament(message: types.Message):
     if not value.isdigit():
 
         await message.answer(
-            "❌ Используй:\n"
-            "/close ID"
+            "❌ Используй /close ID"
         )
 
         return
@@ -2624,102 +4156,16 @@ async def close_tournament(message: types.Message):
 
     db.commit()
 
-    if cursor.rowcount == 0:
+    if cursor.rowcount:
+
+        await message.answer(
+            f"🔴 Турнир #{tournament_id} закрыт."
+        )
+
+    else:
 
         await message.answer(
             "❌ Турнир не найден."
-        )
-
-    else:
-
-        await message.answer(
-            f"✅ Турнир #{tournament_id} закрыт."
-        )
-
-
-@dp.message(Command("approve"))
-async def approve_request(message: types.Message):
-
-    if not is_admin(message.from_user.id):
-        return
-
-    value = message.text.partition(" ")[2].strip()
-
-    if not value.isdigit():
-
-        await message.answer(
-            "❌ Используй:\n"
-            "/approve ID"
-        )
-
-        return
-
-    request_id = int(value)
-
-    cursor = db.execute(
-        """
-        UPDATE registrations
-        SET status = 'approved'
-        WHERE id = ?
-        """,
-        (request_id,)
-    )
-
-    db.commit()
-
-    if cursor.rowcount == 0:
-
-        await message.answer(
-            "❌ Заявка не найдена."
-        )
-
-    else:
-
-        await message.answer(
-            f"✅ Заявка #{request_id} одобрена."
-        )
-
-
-@dp.message(Command("reject"))
-async def reject_request(message: types.Message):
-
-    if not is_admin(message.from_user.id):
-        return
-
-    value = message.text.partition(" ")[2].strip()
-
-    if not value.isdigit():
-
-        await message.answer(
-            "❌ Используй:\n"
-            "/reject ID"
-        )
-
-        return
-
-    request_id = int(value)
-
-    cursor = db.execute(
-        """
-        UPDATE registrations
-        SET status = 'rejected'
-        WHERE id = ?
-        """,
-        (request_id,)
-    )
-
-    db.commit()
-
-    if cursor.rowcount == 0:
-
-        await message.answer(
-            "❌ Заявка не найдена."
-        )
-
-    else:
-
-        await message.answer(
-            f"❌ Заявка #{request_id} отклонена."
         )
 
 
@@ -2730,7 +4176,21 @@ async def reject_request(message: types.Message):
 async def main():
 
     print(
-        "🔥 BRAWL STARS ARENA FINAL is running..."
+        "🔥 BRAWL STARS ARENA — ADMIN EDITION is running..."
+    )
+
+    print(
+        f"👑 Admin IDs: {ADMIN_IDS}"
+    )
+
+    print(
+        f"📝 Registration: "
+        f"{registration_enabled()}"
+    )
+
+    print(
+        f"🏆 Tournament applications: "
+        f"{tournament_registration_enabled()}"
     )
 
     await setup_commands()
